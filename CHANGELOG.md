@@ -141,6 +141,21 @@ section 4 is the order.
 - CI actions are pinned to a commit and the workflow token is scoped to
   `contents: read`, so a moved tag or a wider token is a diff rather than a
   surprise.
+- `src/index.ts` was the one source file no test reached: the suite spawned the
+  entry point only for `--help`, `--version` and the startup errors, so the
+  stdio transport, the tool list on the wire, the per-call audit log and the
+  exit on a client hangup were untested. `tests/server.test.ts` spawns the server
+  and speaks JSON-RPC to it over its own stdio, asserting the handshake, a
+  start/execute/stop round trip, both kinds of refused call, the `callId` the log
+  ties to each outcome, and exit 0 when the client's stdin ends.
+- `tests/concurrency.test.ts` resolved the debugger fixture through
+  `URL.pathname`, which percent-encodes a path and adds a leading slash on
+  Windows, so the file failed to spawn from a checkout whose directory has a
+  space or a non-ASCII character in it. The other two files that spawn it
+  already went through `fileURLToPath`.
+- The start-timeout test asserted only that the wait was shorter than the
+  default, which a timeout firing immediately also satisfies. It now pins both
+  ends: at least the configured wait, and less than the default.
 
 ## [1.0.0] - 2026-09-27
 

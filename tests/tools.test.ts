@@ -97,6 +97,23 @@ describe("callTool", () => {
     expect(result.content[0]?.text).toBe("winedbg started successfully with args: myapp.exe");
   });
 
+  test("start with no args launches the debugger plain", async () => {
+    let started: string[] | undefined;
+    // The call a model makes to attach to a PID it names in prose, or with no
+    // arguments at all, reaches the debugger with nothing on its command line.
+    const result = await callTool(
+      stubSession({
+        start: async (args: string[]) => {
+          started = args;
+        },
+      }),
+      "winedbg_start",
+      undefined,
+    );
+    expect(started).toEqual([]);
+    expect(result.content[0]?.text).toBe("winedbg started successfully with args: ");
+  });
+
   test("execute reports the debugger output", async () => {
     const result = await call(stubSession(), "winedbg_execute", { command: "bt" });
     expect(result.content[0]?.text).toContain("#0 0x7b");
@@ -163,19 +180,38 @@ describe("callTool", () => {
     expect(result.content[0]?.text).toBe("Error: winedbg is not running. Please start it first.");
   });
 
-  test("execute defaults the timeout when the caller omits it", async () => {
-    let seen: number | undefined;
-    await call(
+  test("execute passes the caller's timeout to the session, and defaults it when omitted", async () => {
+    const seen: number[] = [];
+    const session = stubSession({
+      executeCommand: async (_command: string, timeout: number) => {
+        seen.push(timeout);
+        return "bt";
+      },
+    });
+    await callTool(session, "winedbg_execute", { command: "bt" });
+    expect(seen).toEqual([DEFAULT_COMMAND_TIMEOUT_MS]);
+    // The caller's own bound reaches the session rather than the default
+    // quietly replacing it, which is what makes a timeout the model asked for
+    // the one that fires.
+    await callTool(session, "winedbg_execute", { command: "cont", timeout: 1234 });
+    expect(seen).toEqual([DEFAULT_COMMAND_TIMEOUT_MS, 1234]);
+  });
+
+  test("execute refuses a timeout outside the range before the session sees it", async () => {
+    let called = false;
+    const result = await callTool(
       stubSession({
-        executeCommand: async (_command: string, timeout: number) => {
-          seen = timeout;
+        executeCommand: async () => {
+          called = true;
           return "bt";
         },
       }),
       "winedbg_execute",
-      { command: "bt" },
+      { command: "bt", timeout: 0 },
     );
-    expect(seen).toBe(DEFAULT_COMMAND_TIMEOUT_MS);
+    expect(called).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toMatch(/between 1 and/);
   });
 
   // A deployment that raised its ceiling through WINEDBG_MCP_COMMAND_TIMEOUT_MS

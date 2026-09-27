@@ -298,7 +298,11 @@ that is the case worth pinning.
 `tests/validate.test.ts` covers the tool-argument boundary and
 `tests/config.test.ts` the environment parsing described above.
 `tests/cli.test.ts` spawns the entry point to pin the exit codes and which
-stream each message lands on.
+stream each message lands on, and `tests/server.test.ts` spawns it to speak
+JSON-RPC over its stdio: the handshake, the tool list on the wire, a
+start/execute/stop round trip, both kinds of refused call, the `callId` each
+outcome is logged under, and the exit 0 a client hanging up gets. Between them
+the two files reach `src/index.ts`, the one module no unit test can cover.
 
 CI runs the same `bun run check` and `bun run build` on every push and pull
 request, so a green local run is a green remote run. `bun run typecheck` covers

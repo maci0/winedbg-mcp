@@ -10,11 +10,16 @@
 // call's output. No mocks, no virtual clock, nothing shared between tests.
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_COMMAND_TIMEOUT_MS } from "../src/constants.js";
 import { WinedbgSession } from "../src/session.js";
 import { callTool, type ToolResult } from "../src/tools.js";
 
-const FAKE = new URL("fake-winedbg.js", import.meta.url).pathname;
+// fileURLToPath, not .pathname: a file: URL is percent-encoded, and on Windows
+// its pathname carries a leading slash the path does not have (C:\a becomes
+// /C:/a). Either way a checkout under a directory with a space or a non-ASCII
+// character in it spawns a path that does not exist.
+const FAKE = fileURLToPath(new URL("fake-winedbg.js", import.meta.url));
 // Short enough to keep the suite quick, long enough that the fake answers
 // first when it is going to.
 const HANG_TIMEOUT_MS = 200;

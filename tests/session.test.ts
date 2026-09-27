@@ -26,10 +26,10 @@ const FAKE = fileURLToPath(new URL("fake-winedbg.js", import.meta.url));
 // the timeout fires. Every test that leans on that ordering is timed off this
 // value, which is why it is a wall clock as tight as the ordering allows.
 const HANG_TIMEOUT_MS = 200;
-// The one test that needs a command to still be in flight a moment later, on a
-// host busy enough that 200ms can pass between two calls. Loose enough that the
-// rejection, not the timeout, is what the second command sees.
-const IN_FLIGHT_TIMEOUT_MS = 1000;
+// The bound for a command the debugger never answers, where the test ends the
+// wait itself. Loose enough that a loaded host cannot reach it before the test
+// is done, since nothing here should depend on a stopwatch.
+const NO_REPLY_TIMEOUT_MS = 60_000;
 // Short enough that the test is quick, and far below the default it overrides.
 const READY_TIMEOUT_MS = 200;
 const SLOW_REPLY_MS = 300;
@@ -191,7 +191,12 @@ describe("start", () => {
     session = s;
     const began = Date.now();
     await expect(s.start([FAKE, "mute"])).rejects.toThrow(/Timeout waiting/);
-    expect(Date.now() - began).toBeLessThan(DEFAULT_READY_TIMEOUT_MS);
+    const elapsed = Date.now() - began;
+    // Both ends of the wait: a timeout that fired at once would leave a caller
+    // with no time to answer, and one that never fired would have taken the
+    // default. A timer fires no earlier than the delay it was given.
+    expect(elapsed).toBeGreaterThanOrEqual(READY_TIMEOUT_MS);
+    expect(elapsed).toBeLessThan(DEFAULT_READY_TIMEOUT_MS);
     expect(s.isRunning()).toBe(false);
   });
 });
@@ -235,9 +240,13 @@ describe("executeCommand", () => {
 
   test("rejects a second command while one is in flight", async () => {
     const s = await startedSession();
-    const first = s.executeCommand("hang", IN_FLIGHT_TIMEOUT_MS);
+    // A timeout no host can outrun, and a command the debugger never answers,
+    // so the slot is still held however slowly the second call arrives. The
+    // first is ended by the stop rather than by a clock.
+    const first = s.executeCommand("hang", NO_REPLY_TIMEOUT_MS);
     await expect(s.executeCommand("bt")).rejects.toThrow(/already in progress/);
-    await expect(first).rejects.toThrow(/timed out/);
+    s.stop();
+    await expect(first).rejects.toThrow(/stopped manually/);
   });
 
   test("rejects when the debugger never prompts again", async () => {
@@ -466,9 +475,10 @@ describe("stop", () => {
     expect(() => process.kill(pid, 0)).toThrow();
   });
 
-  test("is a no-op when nothing is running", () => {
-    const s = new WinedbgSession();
+  test("stopImmediately is a no-op when nothing is running", () => {
+    const s = newSession();
     expect(() => s.stopImmediately()).not.toThrow();
+    expect(s.isRunning()).toBe(false);
   });
 
   test("settles a start that is still waiting for its prompt", async () => {
