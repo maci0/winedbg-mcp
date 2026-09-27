@@ -41,5 +41,14 @@ reported=$(bun build/index.js --version)
 
 node build/index.js --help >/dev/null || fail "--help failed under node"
 
+# An operand after "--" is refused, not served. Checked here rather than in the
+# suite because `bun <entry> -- x` eats the separator before the entry sees it,
+# so only a node spawn can put a real "--" on the command line.
+usage=$(node build/index.js -- --help 2>&1 >/dev/null) && fail "an operand after -- started the server"
+case "$usage" in
+*"Usage: winedbg-mcp"*) ;;
+*) fail "an operand after -- did not print the usage line, got: $usage" ;;
+esac
+
 printf 'verify-artifact: build/index.js runs under node %s and bun %s\n' \
 	"$(node --version)" "$(bun --version)"

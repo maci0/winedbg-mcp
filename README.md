@@ -230,15 +230,18 @@ Usage: winedbg-mcp [OPTION]
 
 Options:
   -h, --help       Print this help and exit
-      --version    Print the version and exit
+  -V, --version    Print the version and exit
 ```
+
+`--` ends the options. The server takes no operands, so anything after it is
+refused the same way an unknown flag is.
 
 | Invocation | Stream | Exit |
 | --- | --- | --- |
 | `winedbg-mcp` | Serves JSON-RPC on stdin/stdout | 0 on SIGINT, SIGTERM, or end of stdin, after winedbg and the debuggee it started are waited for (up to 6s) |
 | `winedbg-mcp --help` | Help on stdout | 0 |
 | `winedbg-mcp --version` | The `package.json` version on stdout | 0 |
-| `winedbg-mcp --anything-else` | The offending argument and a pointer to `--help`, on stderr | 2 |
+| `winedbg-mcp --anything-else` | The offending argument, the one-line usage, and a pointer to `--help`, on stderr | 2 |
 | `winedbg-mcp` with an unusable environment value | The reason and the variable, on stderr | 1 |
 
 stdout carries protocol traffic and nothing else, so `winedbg-mcp --help | less`

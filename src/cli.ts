@@ -1,6 +1,11 @@
 import { SERVER_VERSION } from "./version.js";
 
-const USAGE = `Usage: winedbg-mcp [OPTION]
+const INVOCATION = "winedbg-mcp [OPTION]";
+
+/** The one-line invocation form, reprinted on a usage error. */
+export const USAGE_LINE = `Usage: ${INVOCATION}`;
+
+const USAGE = `${USAGE_LINE}
 
 MCP server for the Wine debugger. An MCP client launches it and speaks JSON-RPC
 over stdin/stdout; stdout carries protocol traffic only, and every diagnostic
@@ -8,7 +13,7 @@ goes to stderr.
 
 Options:
   -h, --help       Print this help and exit
-      --version    Print the version and exit
+  -V, --version    Print the version and exit
 
 With no option the server starts and waits for a client on stdin.
 
@@ -50,11 +55,21 @@ export type CliAction = { kind: "serve" } | { kind: "help"; usage: string } | { 
  * for is a mistake worth reporting, and a server that starts anyway hides it.
  */
 export function parseCliArgs(argv: readonly string[]): CliAction {
+  // "--" ends the options. The server takes no operands, so it changes nothing
+  // by itself, but it stops what follows from being read as a flag: `-- --help`
+  // is a request to run a command named --help, and saying so is better than
+  // quietly starting a server that waits on a client nobody is going to send.
+  let optionsEnded = false;
   for (const arg of argv) {
+    if (optionsEnded) throw new UsageError(`Unknown argument: ${arg}`);
     switch (arg) {
+      case "--":
+        optionsEnded = true;
+        break;
       case "-h":
       case "--help":
         return { kind: "help", usage: USAGE };
+      case "-V":
       case "--version":
         return { kind: "version", version: SERVER_VERSION };
       default:

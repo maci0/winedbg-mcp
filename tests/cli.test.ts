@@ -63,11 +63,30 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--help"])).toEqual(parseCliArgs(["-h"]));
   });
 
+  test("--version and -V are the same request", () => {
+    expect(parseCliArgs(["--version"])).toEqual(parseCliArgs(["-V"]));
+  });
+
   test("an unrecognized argument is a usage error", () => {
     for (const arg of ["--foo", "-x", "serve", "--HELP"]) {
       expect(() => parseCliArgs([arg])).toThrow(UsageError);
     }
   });
+
+  test("-- ends the options, so what follows is an operand and not a flag", () => {
+    expect(parseCliArgs(["--"])).toEqual({ kind: "serve" });
+    for (const args of [
+      ["--", "--help"],
+      ["--", "-h"],
+      ["--", "serve"],
+    ]) {
+      expect(() => parseCliArgs(args)).toThrow(UsageError);
+    }
+  });
+
+  // The spawned half of this is left to the artifact check rather than run here:
+  // `bun <entry> -- x` hands the entry an argv with the separator already eaten,
+  // so a spawn cannot put a real "--" on the command line the server reads.
 });
 
 describe("winedbg-mcp --help", () => {
@@ -110,6 +129,16 @@ describe("winedbg-mcp --version", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  test(
+    "-V is the same answer on the same stream",
+    async () => {
+      const short = await run(["-V"]);
+      const long = await run(["--version"]);
+      expect(short).toEqual(long);
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
 
 describe("winedbg-mcp with an unknown argument", () => {
@@ -120,6 +149,7 @@ describe("winedbg-mcp with an unknown argument", () => {
       expect(code).toBe(2);
       expect(stdout).toBe("");
       expect(stderr).toContain("--config=foo");
+      expect(stderr).toContain("Usage: winedbg-mcp");
       expect(stderr).toContain("--help");
     },
     TEST_TIMEOUT_MS,

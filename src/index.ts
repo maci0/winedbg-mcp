@@ -2,7 +2,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { parseCliArgs, UsageError } from "./cli.js";
+import { parseCliArgs, USAGE_LINE, UsageError } from "./cli.js";
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
@@ -27,7 +27,9 @@ try {
   }
 } catch (error) {
   if (error instanceof UsageError) {
-    process.stderr.write(`winedbg-mcp: ${error.message}\nTry 'winedbg-mcp --help' for the accepted arguments.\n`);
+    process.stderr.write(
+      `winedbg-mcp: ${error.message}\n${USAGE_LINE}\nTry 'winedbg-mcp --help' for the accepted arguments.\n`,
+    );
     process.exit(2);
   }
   // --version reads the manifest this process was installed from, so a failure
