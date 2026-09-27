@@ -10,7 +10,7 @@ the newest section dated below is not the version the package declares. A
 release renames `## [Unreleased]` to the version it ships; `CONTRIBUTING.md`
 section 4 is the order.
 
-## [Unreleased]
+## [2.0.0] - 2026-09-27
 
 ### Added
 
