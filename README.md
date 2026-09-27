@@ -92,17 +92,25 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 marker in the stream is the `Wine-dbg>` prompt. Two consequences are visible
 through the tools:
 
-- One command per `winedbg_execute` call. Multi-line input is rejected, because
-  each line would draw its own prompt and put every later reply one command behind.
+- One command per `winedbg_execute` call. A command carrying a line terminator is
+  rejected, because every one of them draws its own prompt and puts every later reply
+  one command behind. The rejected set is `\n`, `\r`, vertical tab, form feed, NEL
+  (U+0085), and the Unicode line and paragraph separators (U+2028, U+2029). A stream
+  reader splits on the first three, and readers disagree on the rest, so a command is
+  one line only if it is one line under every one of them.
 - After a command times out, further commands are refused until the debugger
   prints its prompt again. A debugger that has not returned to its prompt is not
   reading commands, and whatever it prints next belongs to the command that timed
   out. If it never comes back (a `cont` into a program that does not stop), call
   `winedbg_stop` and start again.
 
-A single reply is buffered up to 1M characters. Past that the oldest output is
-dropped and the reply says how much went missing rather than returning a silently
-short answer.
+A single reply is buffered up to 1M characters. The cap counts characters of decoded
+text, not bytes, so it means the same thing whatever the target prints: the child's
+output is decoded as UTF-8, a byte sequence that is not valid UTF-8 becomes U+FFFD
+rather than being passed through, and one emoji or CJK character costs one unit however
+many bytes it took. Past the cap the oldest output is dropped at character boundaries,
+so a dropped block never starts in the middle of a multi-byte sequence, and the reply
+says how many characters went missing rather than returning a silently short answer.
 
 ## Usage Example
 
