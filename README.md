@@ -1,6 +1,6 @@
 # winedbg-mcp
 
-An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the interactive debugger, allowing LLMs to control it through MCP tools.
+An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the interactive debugger so an LLM can drive it through MCP tools.
 
 ## Status
 
