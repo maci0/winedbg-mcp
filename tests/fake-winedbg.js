@@ -28,11 +28,12 @@ const debuggee =
 let pending = "";
 process.stdin.on("data", (chunk) => {
   pending += chunk.toString();
-  let nl;
-  while ((nl = pending.indexOf("\n")) !== -1) {
+  let nl = pending.indexOf("\n");
+  while (nl !== -1) {
     const line = pending.slice(0, nl).trim();
     pending = pending.slice(nl + 1);
     handle(line);
+    nl = pending.indexOf("\n");
   }
 });
 
@@ -85,9 +86,9 @@ function handle(line) {
   }
   switch (line) {
     case "quit":
-      process.exit(0);
+      return process.exit(0);
     case "crash":
-      process.exit(3);
+      return process.exit(3);
     case "selfkill":
       // Ends without an exit code, the way a debugger killed from outside does.
       process.kill(process.pid, "SIGKILL");

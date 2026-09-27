@@ -16,7 +16,8 @@ export type ToolResult = {
 export const TOOLS = [
   {
     name: "winedbg_start",
-    description: "Start or attach winedbg. Use this before running any commands. You can optionally provide arguments like the path to a .exe to launch, or a PID to attach to.",
+    description:
+      "Start or attach winedbg. Use this before running any commands. You can optionally provide arguments like the path to a .exe to launch, or a PID to attach to.",
     inputSchema: {
       type: "object",
       properties: {
@@ -30,7 +31,8 @@ export const TOOLS = [
   },
   {
     name: "winedbg_execute",
-    description: "Execute one command in the active winedbg session. (e.g., 'bt', 'step', 'break main'). One command per call: multi-line input is rejected. This requires winedbg_start to have been called.",
+    description:
+      "Execute one command in the active winedbg session. (e.g., 'bt', 'step', 'break main'). One command per call: multi-line input is rejected. This requires winedbg_start to have been called.",
     inputSchema: {
       type: "object",
       properties: {
@@ -41,7 +43,7 @@ export const TOOLS = [
         timeout: {
           type: "number",
           description: `Optional timeout in milliseconds for the command to finish. Defaults to ${DEFAULT_COMMAND_TIMEOUT_MS}ms, maximum ${MAX_COMMAND_TIMEOUT_MS}ms.`,
-        }
+        },
       },
       required: ["command"],
     },
@@ -69,7 +71,7 @@ function text(text: string): ToolResult {
 export async function callTool(
   session: ToolSession,
   name: string,
-  args: Record<string, unknown> | undefined
+  args: Record<string, unknown> | undefined,
 ): Promise<ToolResult> {
   try {
     switch (name) {

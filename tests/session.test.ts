@@ -201,17 +201,17 @@ describe("executeCommand", () => {
 
   test("accepts a new command once the abandoned reply lands", async () => {
     const s = await startedSession();
-    await expect(s.executeCommand("sleep:" + SLOW_REPLY_MS, HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
+    await expect(s.executeCommand(`sleep:${SLOW_REPLY_MS}`, HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
     await Bun.sleep(LATE_REPLY_WAIT_MS);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
 
   test("never hands one command the output of an abandoned one", async () => {
     const s = await startedSession();
-    await expect(s.executeCommand("sleep:" + SLOW_REPLY_MS, HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
+    await expect(s.executeCommand(`sleep:${SLOW_REPLY_MS}`, HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
     await Bun.sleep(LATE_REPLY_WAIT_MS);
-    const out = await s.executeCommand("sleep:" + SLOW_REPLY_MS, SLOW_REPLY_MS * 5);
-    expect(out).toBe("ran: sleep:" + SLOW_REPLY_MS);
+    const out = await s.executeCommand(`sleep:${SLOW_REPLY_MS}`, SLOW_REPLY_MS * 5);
+    expect(out).toBe(`ran: sleep:${SLOW_REPLY_MS}`);
   });
 
   test("survives a debugger that stopped reading commands", async () => {
@@ -225,7 +225,7 @@ describe("executeCommand", () => {
 
   test("caps a huge reply and says how much it dropped", async () => {
     const s = await startedSession();
-    const out = await s.executeCommand("noise:" + OVERFLOW_CHARS);
+    const out = await s.executeCommand(`noise:${OVERFLOW_CHARS}`);
     expect(out).toMatch(/characters of earlier output dropped/);
     expect(out.length).toBeLessThan(OVERFLOW_CHARS);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
@@ -235,22 +235,18 @@ describe("executeCommand", () => {
   // 256 parent reads of a buffer sitting at its cap. It takes seconds on a quiet
   // machine and overruns the 5s default under a parallel run, so the budget is
   // set for the process traffic rather than for the assertion.
-  test(
-    "keeps a reply intact when it arrives in many pieces past the buffer cap",
-    async () => {
-      const s = await startedSession();
-      // Each piece is its own read, so the reply is searched for a prompt hundreds
-      // of times over a buffer that stays at its cap throughout.
-      const out = await s.executeCommand("dribble:" + OVERFLOW_CHARS);
-      // What is left is the dropped-count notice and the tail, with no prompt and
-      // no other command's output spliced into it.
-      expect(out).toMatch(/^\[\d+ characters of earlier output dropped: buffer limit\]\nd+$/);
-      expect(out.length).toBeLessThan(OVERFLOW_CHARS);
-      // The prompt that ended the reply was consumed, not left for the next one.
-      expect(await s.executeCommand("bt")).toBe("ran: bt");
-    },
-    20000
-  );
+  test("keeps a reply intact when it arrives in many pieces past the buffer cap", async () => {
+    const s = await startedSession();
+    // Each piece is its own read, so the reply is searched for a prompt hundreds
+    // of times over a buffer that stays at its cap throughout.
+    const out = await s.executeCommand(`dribble:${OVERFLOW_CHARS}`);
+    // What is left is the dropped-count notice and the tail, with no prompt and
+    // no other command's output spliced into it.
+    expect(out).toMatch(/^\[\d+ characters of earlier output dropped: buffer limit\]\nd+$/);
+    expect(out.length).toBeLessThan(OVERFLOW_CHARS);
+    // The prompt that ended the reply was consumed, not left for the next one.
+    expect(await s.executeCommand("bt")).toBe("ran: bt");
+  }, 20000);
 
   test("rejects the in-flight command when the debugger exits", async () => {
     const s = await startedSession();

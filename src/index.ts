@@ -7,7 +7,7 @@ import { describeConfig, loadConfig } from "./config.js";
 import { parseCliArgs, UsageError } from "./cli.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS } from "./constants.js";
 import { WinedbgSession } from "./session.js";
-import { TOOLS, callTool } from "./tools.js";
+import { callTool, TOOLS } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
 
 // The command line is resolved before the environment, so --help and --version
@@ -38,6 +38,7 @@ let config: Config;
 try {
   config = loadConfig(process.env);
 } catch (error) {
+  // biome-ignore lint/suspicious/noConsole: stdout carries the JSON-RPC stream, so stderr is the only channel a startup failure can be reported on.
   console.error(`Configuration error: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 }
@@ -51,7 +52,7 @@ const server = new Server(
     capabilities: {
       tools: {},
     },
-  }
+  },
 );
 
 const session = new WinedbgSession(config.binary, config.readyTimeoutMs);
@@ -112,10 +113,12 @@ async function main() {
   server.onclose = shutdown;
   process.stdin.once("end", shutdown);
   process.stdin.once("close", shutdown);
+  // biome-ignore lint/suspicious/noConsole: stdout carries the JSON-RPC stream, so stderr is the only channel the banner can go to.
   console.error(`winedbg MCP server running on stdio (${describeConfig(config)})`);
 }
 
 main().catch((error) => {
+  // biome-ignore lint/suspicious/noConsole: stdout carries the JSON-RPC stream, so stderr is the only channel a fatal error can be reported on.
   console.error("Server error:", error);
   process.exit(1);
 });

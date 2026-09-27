@@ -188,10 +188,15 @@ would otherwise refuse to start on.
 
 ## Tests
 
-`bun run typecheck` and `bun test` are the gate for this tree.
+`bun run check` is the gate for this tree: Biome, then the two type-check
+passes, then the suite. `bun run typecheck` and `bun test` are the pieces it
+runs, for iterating on one of them at a time.
 
 ```bash
-bun run typecheck
+bun run check          # what CI runs
+bun run lint           # Biome, formatting and lint rules
+bun run format         # Biome autofix
+bun run typecheck      # tsc on src/, then on src/ + tests/
 bun test
 ```
 
@@ -217,6 +222,16 @@ WINEDBG_MCP_SIM_SEED=1014 bun test tests/simulation.test.ts
 `tests/config.test.ts` the environment parsing described above.
 `tests/cli.test.ts` spawns the entry point to pin the exit codes and which
 stream each message lands on.
+
+CI runs the same `bun run check` on every push and pull request, so a green
+local run is a green remote run. `bun run typecheck` covers `src/` on its own,
+which is the set that ships as `build/`, and then re-checks it together with
+`tests/` so a mistyped test helper fails the build rather than the suite.
+
+Formatting is Biome's, and the line width is 120 columns, the width the tree was
+already written to. `src/index.ts` keeps three scoped `noConsole` suppressions:
+stdout carries the MCP JSON-RPC stream, so the startup banner and the fatal
+error path have to go to stderr.
 
 ## Troubleshooting
 

@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_COMMAND_TIMEOUT_MS } from "../src/constants.js";
-import { TOOLS, callTool, type ToolSession } from "../src/tools.js";
+import { callTool, TOOLS, type ToolSession } from "../src/tools.js";
 
 function stubSession(overrides: Partial<ToolSession> = {}): ToolSession {
   const session: ToolSession = {
@@ -16,11 +16,7 @@ function stubSession(overrides: Partial<ToolSession> = {}): ToolSession {
 
 describe("tool list", () => {
   test("names the three tools the handler dispatches", () => {
-    expect(TOOLS.map((tool) => tool.name)).toEqual([
-      "winedbg_start",
-      "winedbg_execute",
-      "winedbg_stop",
-    ]);
+    expect(TOOLS.map((tool) => tool.name)).toEqual(["winedbg_start", "winedbg_execute", "winedbg_stop"]);
   });
 });
 
@@ -28,9 +24,13 @@ describe("callTool", () => {
   test("start passes the args through and reports them", async () => {
     let started: string[] | undefined;
     const result = await callTool(
-      stubSession({ start: async (args: string[]) => void (started = args) }),
+      stubSession({
+        start: async (args: string[]) => {
+          started = args;
+        },
+      }),
       "winedbg_start",
-      { args: ["myapp.exe"] }
+      { args: ["myapp.exe"] },
     );
     expect(started).toEqual(["myapp.exe"]);
     expect(result.isError).toBeUndefined();
@@ -43,11 +43,9 @@ describe("callTool", () => {
   });
 
   test("execute says so when the debugger answers with nothing", async () => {
-    const result = await callTool(
-      stubSession({ executeCommand: async () => "" }),
-      "winedbg_execute",
-      { command: "step" }
-    );
+    const result = await callTool(stubSession({ executeCommand: async () => "" }), "winedbg_execute", {
+      command: "step",
+    });
     expect(result.content[0]?.text).toBe("(Command executed successfully, no output)");
   });
 
@@ -65,7 +63,7 @@ describe("callTool", () => {
         },
       }),
       "winedbg_execute",
-      { command: "bt" }
+      { command: "bt" },
     );
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toBe("Error: winedbg is not running. Please start it first.");
@@ -78,9 +76,14 @@ describe("callTool", () => {
   test("execute defaults the timeout when the caller omits it", async () => {
     let seen: number | undefined;
     await callTool(
-      stubSession({ executeCommand: async (_command: string, timeout: number) => void (seen = timeout) }),
+      stubSession({
+        executeCommand: async (_command: string, timeout: number) => {
+          seen = timeout;
+          return "bt";
+        },
+      }),
       "winedbg_execute",
-      { command: "bt" }
+      { command: "bt" },
     );
     expect(seen).toBe(DEFAULT_COMMAND_TIMEOUT_MS);
   });

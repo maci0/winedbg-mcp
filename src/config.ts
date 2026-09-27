@@ -63,7 +63,7 @@ function parseReadyTimeout(raw: string | undefined): number {
   const value = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : NaN;
   if (!Number.isFinite(value) || value <= 0 || value > MAX_READY_TIMEOUT_MS) {
     throw new Error(
-      `${READY_TIMEOUT_VAR} must be a whole number of milliseconds between 1 and ${MAX_READY_TIMEOUT_MS}, got "${raw}"`
+      `${READY_TIMEOUT_VAR} must be a whole number of milliseconds between 1 and ${MAX_READY_TIMEOUT_MS}, got "${raw}"`,
     );
   }
   return value;

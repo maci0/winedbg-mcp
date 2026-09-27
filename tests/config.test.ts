@@ -6,7 +6,7 @@
 // plain object. process.env is never touched.
 
 import { describe, expect, test } from "bun:test";
-import { BINARY_VAR, READY_TIMEOUT_VAR, describeConfig, loadConfig } from "../src/config.js";
+import { BINARY_VAR, describeConfig, loadConfig, READY_TIMEOUT_VAR } from "../src/config.js";
 import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/constants.js";
 
 describe("loadConfig", () => {
@@ -51,11 +51,9 @@ describe("loadConfig", () => {
   test("a ready timeout outside the range is refused", () => {
     expect(() => loadConfig({ [READY_TIMEOUT_VAR]: "0" })).toThrow(new RegExp(READY_TIMEOUT_VAR));
     expect(() => loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS + 1) })).toThrow(
-      new RegExp(READY_TIMEOUT_VAR)
+      new RegExp(READY_TIMEOUT_VAR),
     );
-    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(
-      MAX_READY_TIMEOUT_MS
-    );
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(MAX_READY_TIMEOUT_MS);
   });
 
   test("the startup line names both variables and their active values", () => {

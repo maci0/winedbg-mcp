@@ -357,7 +357,9 @@ export class WinedbgSession {
       const dropped = this.droppedChars;
       this.droppedChars = 0;
       // Say what was lost rather than returning a silently shortened reply.
-      this.currentPromise.resolve(dropped > 0 ? `[${dropped} characters of earlier output dropped: buffer limit]\n${output}` : output);
+      this.currentPromise.resolve(
+        dropped > 0 ? `[${dropped} characters of earlier output dropped: buffer limit]\n${output}` : output,
+      );
       this.releaseCurrent();
     }
   }
@@ -376,7 +378,9 @@ export class WinedbgSession {
       throw new Error("winedbg is not running. Please start it first.");
     }
     if (this.currentPromise) {
-      throw new Error(`Another command is already in progress: ${JSON.stringify(this.currentCommand)}. Wait for its reply.`);
+      throw new Error(
+        `Another command is already in progress: ${JSON.stringify(this.currentCommand)}. Wait for its reply.`,
+      );
     }
     // A debugger that has not returned to its prompt is not reading commands,
     // and any output it does produce belongs to the abandoned command. Refusing
@@ -384,7 +388,7 @@ export class WinedbgSession {
     if (this.awaitingAbandonedPrompt) {
       throw new Error(
         "The previous command timed out and the debugger has not returned to its prompt. " +
-          "Retry once it does, or stop and start the session."
+          "Retry once it does, or stop and start the session.",
       );
     }
     // Each line is a command and answers with its own prompt, so a multi-line
@@ -399,14 +403,12 @@ export class WinedbgSession {
     const stdin = child.stdin;
     if (!stdin) {
       throw new Error(
-        "winedbg was started without an open stdin pipe, so no command can reach it. Stop and start the session again."
+        "winedbg was started without an open stdin pipe, so no command can reach it. Stop and start the session again.",
       );
     }
     return new Promise((resolve, reject) => {
       const timeout = this.runtime.clock.setTimeout(() => {
-        this.abandonCurrent(
-          new Error(`Command timed out after ${timeoutMs}ms: ${JSON.stringify(command)}`)
-        );
+        this.abandonCurrent(new Error(`Command timed out after ${timeoutMs}ms: ${JSON.stringify(command)}`));
       }, timeoutMs);
 
       this.currentPromise = {
@@ -417,7 +419,7 @@ export class WinedbgSession {
         reject: (err) => {
           timeout.cancel();
           reject(err);
-        }
+        },
       };
       this.currentCommand = command;
 
@@ -425,15 +427,15 @@ export class WinedbgSession {
       // separately, so dropping the text here cannot lose a boundary.
       this.clearBuffer();
       try {
-        stdin.write(command + "\n");
+        stdin.write(`${command}\n`);
       } catch (error) {
         // The write failed part way, so the debugger may hold the command and
         // still owe a prompt. Release the slot instead of leaving every later
         // command refused as in progress.
         this.abandonCurrent(
           new Error(
-            `Failed to send ${JSON.stringify(command)} to winedbg: ${error instanceof Error ? error.message : String(error)}`
-          )
+            `Failed to send ${JSON.stringify(command)} to winedbg: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         );
       }
     });
