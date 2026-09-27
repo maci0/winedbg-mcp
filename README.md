@@ -44,12 +44,13 @@ Supported platforms are Linux and macOS. `winedbg_stop` signals a process group
 rather than a single process, so the debuggee `winedbg` launched is stopped with
 it, and that needs POSIX process groups: neither the `detached` child group nor
 the negative-pid `kill` exists on Windows, where the same call would leave the
-program under debug running. CI runs on Linux only, so macOS is supported by the
-code being POSIX and untested; say so if that changes.
+program under debug running. CI runs the whole gate on both, so the claim is
+tested rather than inferred from POSIX.
 
 Node.js 18 or higher is only needed if you run the built `build/index.js`
 with `node` instead of `bun`, or to run `scripts/verify-artifact.sh`, which
-checks the artifact under both hosts.
+checks the artifact under both hosts. `package.json` declares the same floor
+under `engines`, so a client on an older host is warned at install time.
 
 ## Installation
 
@@ -58,6 +59,9 @@ checks the artifact under both hosts.
    ```bash
    bun install
    ```
+   CI runs the same install as `bun install --frozen-lockfile`, so `bun.lock` is
+   the only dependency set any build is allowed to resolve. A plain `bun install`
+   updates it, which is how a dependency change enters the tree.
 3. Build the project:
    ```bash
    bun run build
@@ -66,7 +70,9 @@ checks the artifact under both hosts.
 The build writes `build/index.js`. To run the server straight from source
 without a build step, use `bun run dev` (`bun run start` runs the built file).
 The build clears `build/` first, so a module deleted from `src/` cannot linger
-in the artifact, and the output is byte-identical wherever the checkout sits.
+in the artifact, and the output is byte-identical wherever the checkout sits,
+whatever the locale or timezone, and at any wall-clock time: `tsc` emits no
+timestamp, no absolute path and no source map.
 
 ## Configuration
 

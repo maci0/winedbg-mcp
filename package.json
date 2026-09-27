@@ -5,6 +5,9 @@
   "license": "ISC",
   "type": "module",
   "packageManager": "bun@1.4.0",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "build/index.js",
   "bin": {
     "winedbg-mcp": "build/index.js"

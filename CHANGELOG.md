@@ -61,6 +61,14 @@ section 4 is the order.
   A start naming different `args` is a different request and is still refused.
 - Every tool description now states what a repeated call does, including that
   `winedbg_execute` runs its command again rather than answering from a cache.
+- The `LICENSE` file the manifest has always declared as `ISC` now exists, so
+  the published tarball carries the terms instead of a `license` field naming a
+  file that was not there.
+- `package.json` declares `engines.node: ">=18"`, the floor the README and
+  `CONTRIBUTING.md` have always stated and the one the compiled output needs.
+- CI runs the install, the gate, the build and `scripts/verify-artifact.sh` on
+  macOS as well as Linux. The README named both platforms as supported and said
+  so far macOS was untested.
 - Declared dependency floors now match the versions the test suite runs
   against: `@modelcontextprotocol/sdk` `^1.30.0`, `@types/node` `^22.20.1`,
   `typescript` `^5.9.3`. A `bun update` can no longer land on a release the
