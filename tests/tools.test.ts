@@ -18,6 +18,27 @@ describe("tool list", () => {
   test("names the three tools the handler dispatches", () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual(["winedbg_start", "winedbg_execute", "winedbg_stop"]);
   });
+
+  // The SDK does not enforce the schema it advertates, so a name that drifts
+  // between the schema and the handler reads nothing and reports nothing: the
+  // model sends the advertised field, the handler reads undefined, and the call
+  // fails at the session instead of at the boundary. Pin the advertised names.
+  test("advertises the argument names the handler reads", () => {
+    const byName = new Map(TOOLS.map((tool) => [tool.name, tool.inputSchema]));
+    expect(Object.keys(byName.get("winedbg_start")!.properties)).toEqual(["args"]);
+    expect(Object.keys(byName.get("winedbg_execute")!.properties)).toEqual(["command", "timeout"]);
+    expect(Object.keys(byName.get("winedbg_stop")!.properties)).toEqual([]);
+  });
+
+  // Without this, a model turn that omits the command reaches the debugger as an
+  // empty line, which draws a prompt and an empty reply, and the model sees a
+  // successful command it never asked for.
+  test("marks command as required, and nothing else", () => {
+    const byName = new Map(TOOLS.map((tool) => [tool.name, tool.inputSchema]));
+    expect(byName.get("winedbg_execute")!.required).toEqual(["command"]);
+    expect(byName.get("winedbg_start")!.required).toBeUndefined();
+    expect(byName.get("winedbg_stop")!.required).toBeUndefined();
+  });
 });
 
 describe("callTool", () => {
@@ -71,6 +92,36 @@ describe("callTool", () => {
 
   test("an unknown tool is a protocol error the client has to see", async () => {
     await expect(callTool(stubSession(), "winedbg_nope", undefined)).rejects.toThrow(/Unknown tool/);
+  });
+
+  test("stop ends the session the model is holding", async () => {
+    let stops = 0;
+    const result = await callTool(
+      stubSession({
+        stop: () => {
+          stops++;
+        },
+      }),
+      "winedbg_stop",
+      undefined
+    );
+    expect(stops).toBe(1);
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toBe("winedbg session stopped.");
+  });
+
+  test("a stop that fails is an error result, not a lost session", async () => {
+    const result = await callTool(
+      stubSession({
+        stop: () => {
+          throw new Error("winedbg is not running. Please start it first.");
+        },
+      }),
+      "winedbg_stop",
+      undefined
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toBe("Error: winedbg is not running. Please start it first.");
   });
 
   test("execute defaults the timeout when the caller omits it", async () => {

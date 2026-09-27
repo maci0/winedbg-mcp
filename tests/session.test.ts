@@ -88,7 +88,9 @@ describe("start", () => {
   test("rejects when the binary does not exist", async () => {
     const s = new WinedbgSession("/nonexistent/winedbg-fixture");
     session = s;
-    await expect(s.start()).rejects.toThrow();
+    // Named, so a regression that reports a generic start failure instead of the
+    // spawn error does not pass here.
+    await expect(s.start()).rejects.toThrow(/winedbg-fixture/);
     // A process that never started is not a session: leaving it set would refuse
     // every later start with "already running".
     expect(s.isRunning()).toBe(false);

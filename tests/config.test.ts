@@ -53,7 +53,19 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS + 1) })).toThrow(
       new RegExp(READY_TIMEOUT_VAR),
     );
-    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(MAX_READY_TIMEOUT_MS);
+  });
+
+  // Both ends of the accepted range, so a bound that moves to 0 or to the
+  // exclusive end fails here rather than on a deployment's cold start.
+  test("the range ends are inside it", () => {
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: "1" }).readyTimeoutMs).toBe(1);
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(
+      MAX_READY_TIMEOUT_MS
+    );
+  });
+
+  test("surrounding whitespace is a typo-free formatting habit, not a value", () => {
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: " 45000 " }).readyTimeoutMs).toBe(45000);
   });
 
   test("the startup line names both variables and their active values", () => {

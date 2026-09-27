@@ -12,6 +12,12 @@ const ENTRY = new URL("../src/index.ts", import.meta.url).pathname;
 // machine. Past this the child is wedged, and a wedged child has to fail the
 // test rather than hang it.
 const SPAWN_TIMEOUT_MS = 30_000;
+// Every test here spawns the entry point, so every one of them runs on this
+// budget rather than bun's 5s default: in a parallel run a cold start alone
+// exceeds 5s, and the default turns a slow machine into a red suite. The margin
+// lets run() kill a wedged child and report its exit code, instead of the test
+// deadline firing first and hiding why.
+const TEST_TIMEOUT_MS = SPAWN_TIMEOUT_MS + 5_000;
 
 type Run = { code: number; stdout: string; stderr: string };
 
@@ -57,50 +63,70 @@ describe("parseCliArgs", () => {
 });
 
 describe("winedbg-mcp --help", () => {
-  test("prints the usage on stdout and exits 0", async () => {
-    const { code, stdout, stderr } = await run(["--help"]);
-    expect(code).toBe(0);
-    expect(stderr).toBe("");
-    expect(stdout).toContain("Usage: winedbg-mcp");
-    expect(stdout).toContain("--version");
-    expect(stdout).toContain("WINEDBG_MCP_BINARY");
-  });
+  test(
+    "prints the usage on stdout and exits 0",
+    async () => {
+      const { code, stdout, stderr } = await run(["--help"]);
+      expect(code).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout).toContain("Usage: winedbg-mcp");
+      expect(stdout).toContain("--version");
+      expect(stdout).toContain("WINEDBG_MCP_BINARY");
+    },
+    TEST_TIMEOUT_MS
+  );
 
-  test("works in a deployment whose environment the server would refuse", async () => {
-    const { code, stdout, stderr } = await run(["--help"], { WINEDBG_MCP_BINRY: "winedbg" });
-    expect(code).toBe(0);
-    expect(stderr).toBe("");
-    expect(stdout).toContain("Usage: winedbg-mcp");
-  });
+  test(
+    "works in a deployment whose environment the server would refuse",
+    async () => {
+      const { code, stdout, stderr } = await run(["--help"], { WINEDBG_MCP_BINRY: "winedbg" });
+      expect(code).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout).toContain("Usage: winedbg-mcp");
+    },
+    TEST_TIMEOUT_MS
+  );
 });
 
 describe("winedbg-mcp --version", () => {
-  test("prints the manifest version on stdout and exits 0", async () => {
-    const manifest = (await Bun.file(new URL("../package.json", import.meta.url)).json()) as {
-      version: string;
-    };
-    const { code, stdout, stderr } = await run(["--version"]);
-    expect(code).toBe(0);
-    expect(stderr).toBe("");
-    expect(stdout.trim()).toBe(manifest.version);
-  });
+  test(
+    "prints the manifest version on stdout and exits 0",
+    async () => {
+      const manifest = (await Bun.file(new URL("../package.json", import.meta.url)).json()) as {
+        version: string;
+      };
+      const { code, stdout, stderr } = await run(["--version"]);
+      expect(code).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout.trim()).toBe(manifest.version);
+    },
+    TEST_TIMEOUT_MS
+  );
 });
 
 describe("winedbg-mcp with an unknown argument", () => {
-  test("names the argument on stderr and exits 2, leaving stdout empty", async () => {
-    const { code, stdout, stderr } = await run(["--config=foo"]);
-    expect(code).toBe(2);
-    expect(stdout).toBe("");
-    expect(stderr).toContain("--config=foo");
-    expect(stderr).toContain("--help");
-  });
+  test(
+    "names the argument on stderr and exits 2, leaving stdout empty",
+    async () => {
+      const { code, stdout, stderr } = await run(["--config=foo"]);
+      expect(code).toBe(2);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("--config=foo");
+      expect(stderr).toContain("--help");
+    },
+    TEST_TIMEOUT_MS
+  );
 });
 
 describe("winedbg-mcp with an unusable environment value", () => {
-  test("exits 1 with the variable named on stderr", async () => {
-    const { code, stdout, stderr } = await run([], { WINEDBG_MCP_READY_TIMEOUT_MS: "0" });
-    expect(code).toBe(1);
-    expect(stdout).toBe("");
-    expect(stderr).toContain("WINEDBG_MCP_READY_TIMEOUT_MS");
-  });
+  test(
+    "exits 1 with the variable named on stderr",
+    async () => {
+      const { code, stdout, stderr } = await run([], { WINEDBG_MCP_READY_TIMEOUT_MS: "0" });
+      expect(code).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("WINEDBG_MCP_READY_TIMEOUT_MS");
+    },
+    TEST_TIMEOUT_MS
+  );
 });

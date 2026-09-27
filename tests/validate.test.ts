@@ -113,6 +113,9 @@ describe("optionalTimeout", () => {
 
   test("passes a sane value through", () => {
     expect(optionalTimeout(500)).toBe(500);
+    // The lower bound is the one value that survives every rejection below, so
+    // pin it next to them rather than leaving the range open at the bottom.
+    expect(optionalTimeout(1)).toBe(1);
     expect(optionalTimeout(MAX_COMMAND_TIMEOUT_MS)).toBe(MAX_COMMAND_TIMEOUT_MS);
   });
 
