@@ -9,7 +9,19 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- Declared dependency floors now match the versions the test suite runs
+  against: `@modelcontextprotocol/sdk` `^1.30.0`, `@types/node` `^22.20.1`,
+  `typescript` `^5.9.3`. A `bun update` can no longer land on a release the
+  project never ran a build or a test against. Resolutions in `bun.lock` are
+  unchanged.
+
+### Fixed
+
+- `bun publish` runs the build first. `build/` is gitignored but is the whole
+  published tarball, so a publish from a clean checkout shipped nothing, and a
+  publish from a dirty one shipped whatever `build/` happened to contain.
 
 ## [1.0.0] - 2026-09-27
 
