@@ -6,6 +6,7 @@ import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
 import { WinedbgSession } from "./session.js";
 import { TOOLS, callTool } from "./tools.js";
+import { SERVER_VERSION } from "./version.js";
 
 // Read the environment before anything else: a bad value stops the server here,
 // with the variable named, instead of surfacing later as a spawn or start failure.
@@ -20,7 +21,7 @@ try {
 const server = new Server(
   {
     name: "winedbg-mcp",
-    version: "1.0.0",
+    version: SERVER_VERSION,
   },
   {
     capabilities: {

@@ -6,13 +6,16 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 
 The server is implemented and tested. `src/` holds the MCP entry point, the
 winedbg session state machine, the environment parsing and the tool-argument
-validation; `tests/` covers all of those, and CI (`.github/workflows/ci.yml`)
-runs the typecheck and the suite. The session tests drive
-`WinedbgSession` against a stand-in that speaks the same `Wine-dbg>` prompt
-protocol, so the suite needs no Wine. No test here has been run against a real
-`winedbg`: the debugger is the one thing the fixtures replace. See
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), which is still written against
-this README as a specification rather than against the source, and says so.
+validation; `build/` is the compiled output of `bun run build`; `tests/` covers
+all of those, and CI (`.github/workflows/ci.yml`) runs the typecheck and the
+suite. The session tests drive `WinedbgSession` against a stand-in that speaks
+the same `Wine-dbg>` prompt protocol, so the suite needs no Wine. No test here
+has been run against a real `winedbg`: the debugger is the one thing the fixtures
+replace, so the suite proves the prompt protocol and the tool argument handling,
+not Wine itself. See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), which is
+still written against this README as a specification rather than against the
+source, and says so. [`CHANGELOG.md`](CHANGELOG.md) records what changed in each
+release.
 
 Source layout, one concern per module:
 
@@ -96,7 +99,7 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 
 ## Tools Available
 
-- **`winedbg_start`**: Start `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works, such as the program to launch (e.g. `{"args": ["myapp.exe"]}`). `args` must be an array of strings; a bare string is rejected rather than split into one argument per character.
+- **`winedbg_start`**: Start or attach to `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works: the program to launch (e.g. `{"args": ["myapp.exe"]}`) or a PID to attach to (`{"args": ["1234"]}`). `args` must be an array of strings; a bare string is rejected rather than split into one argument per character.
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
   Takes an optional `timeout` in milliseconds (default 30000, minimum 1, maximum 600000).
 - **`winedbg_stop`**: Stop the active `winedbg` session.
@@ -168,4 +171,5 @@ produced, so the text names the state to fix:
 
 ## License
 
-ISC. This tree ships no `LICENSE` file, so the terms are stated here only.
+ISC, declared in `package.json`. This tree ships no `LICENSE` file, so the full
+terms are stated here only.

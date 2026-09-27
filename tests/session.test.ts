@@ -138,7 +138,9 @@ describe("executeCommand", () => {
 
   test("rejects every line terminator a stream reader may split on", async () => {
     const s = await startedSession();
-    const terminators = ["\r", "\n", "\v", "\f", "\u0085", "\u2028", "\u2029"];
+    // LF, CR, VT, FF, NEL, and the Unicode line and paragraph separators: the
+    // documented set, so the check cannot be narrowed to \r\n by accident.
+    const terminators = ["\n", "\r", "\v", "\f", "\u0085", "\u2028", "\u2029"];
     for (const terminator of terminators) {
       await expect(s.executeCommand(`bt${terminator}cont`)).rejects.toThrow(/single line/);
     }

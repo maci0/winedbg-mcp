@@ -13,7 +13,7 @@ const BUFFER_RETAIN_CHARS = Math.floor((MAX_BUFFER_CHARS * 3) / 4);
 // SIGTERM asks; a debugger stopped inside a trap handler may not answer.
 const KILL_GRACE_MS = 2000;
 // LF, CR, vertical tab, form feed, NEL, and the Unicode line and paragraph
-// separators. JavaScript regexes are not multiline here, so each is listed.
+// separators, which is the union of what a stream reader may split a reply on.
 const LINE_TERMINATOR = /[\r\n\u000B\u000C\u0085\u2028\u2029]/;
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
