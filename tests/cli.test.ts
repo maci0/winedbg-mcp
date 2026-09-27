@@ -14,8 +14,11 @@ const ENTRY = new URL("../src/index.ts", import.meta.url).pathname;
 const SPAWN_TIMEOUT_MS = 30_000;
 // Every test here spawns the entry point, so every one of them runs on this
 // budget rather than bun's 5s default: in a parallel run a cold start alone
-// exceeds 5s, and the default turns a slow machine into a red suite. The margin
-// lets run() kill a wedged child and report its exit code, instead of the test
+// exceeds 5s, and the default turns a slow machine into a red suite. A test
+// deadline below SPAWN_TIMEOUT_MS lets the runner abandon the test while the
+// child is still starting, which reports a pass-shaped failure with exit code
+// 143 instead of the hang the spawn timeout exists to catch. The margin lets
+// run() kill a wedged child and report its exit code, instead of the test
 // deadline firing first and hiding why.
 const TEST_TIMEOUT_MS = SPAWN_TIMEOUT_MS + 5_000;
 

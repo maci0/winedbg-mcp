@@ -28,12 +28,22 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
   `typescript` `^5.9.3`. A `bun update` can no longer land on a release the
   project never ran a build or a test against. Resolutions in `bun.lock` are
   unchanged.
+- The build clears `build/` before compiling, so a module deleted from `src/`
+  can no longer be published from a stale object left by an earlier build.
+- `tsc` emits LF line endings on every host, so the artifact bytes no longer
+  depend on the platform doing the build.
+- CI builds the package and runs `scripts/verify-artifact.sh`, which runs the
+  compiled entry point under both `node` and `bun` and rejects source or map
+  files in `build/`. The suite alone only ever exercised `src/`.
 
 ### Fixed
 
 - `bun publish` runs the build first. `build/` is gitignored but is the whole
   published tarball, so a publish from a clean checkout shipped nothing, and a
   publish from a dirty one shipped whatever `build/` happened to contain.
+- The command-line tests inherit a test deadline above their own spawn
+  timeout. On a loaded machine a child that had not finished starting was
+  abandoned and reported as exit code 143 rather than as the hang it was.
 
 ## [1.0.0] - 2026-09-27
 

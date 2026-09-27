@@ -8,7 +8,8 @@ The server is implemented and tested. `src/` holds the MCP entry point, the
 winedbg session state machine, the environment parsing, the command-line
 parsing and the tool-argument validation; `build/` is the compiled output of
 `bun run build`; `tests/` covers all of those, and CI (`.github/workflows/ci.yml`)
-runs the install, the typecheck, the build and the suite. The session tests drive `WinedbgSession`
+runs the install, the typecheck, the build, the suite and the artifact check.
+The session tests drive `WinedbgSession`
 against a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the
 suite needs no Wine. No test here has been run against a real `winedbg`: the
 debugger is the one thing the fixtures replace, so the suite proves the prompt
@@ -31,6 +32,7 @@ Source layout, one concern per module:
 | `src/config.ts` | reading and validating the environment |
 | `src/constants.ts` | defaults and limits shared across the above |
 | `src/version.ts` | the version string reported to MCP clients |
+| `scripts/verify-artifact.sh` | asserts the built entry point runs and ships nothing but compiled JavaScript |
 
 ## Prerequisites
 
@@ -54,6 +56,8 @@ with `node` instead of `bun`.
 
 The build writes `build/index.js`. To run the server straight from source
 without a build step, use `bun run dev` (`bun run start` runs the built file).
+The build clears `build/` first, so a module deleted from `src/` cannot linger
+in the artifact, and the output is byte-identical wherever the checkout sits.
 
 ## Configuration
 
@@ -228,6 +232,8 @@ would otherwise refuse to start on.
 passes, then the suite. `bun run typecheck` and `bun test` are the pieces it
 runs, for iterating on one of them at a time. CI runs the build as well, so a
 tree that type-checks but does not emit is red there rather than at release.
+The suite runs against `src/`; the compiled layout gets its own check, run by
+CI after `bun run build`.
 
 ```bash
 bun run check          # what CI runs
@@ -236,6 +242,8 @@ bun run format         # Biome autofix
 bun run typecheck      # tsc on src/, then on src/ + tests/
 bun run build          # tsc, then the executable build/index.js
 bun test
+bun run build
+scripts/verify-artifact.sh
 ```
 
 `tests/session.test.ts` drives `WinedbgSession` against `tests/fake-winedbg.js`,
