@@ -34,6 +34,13 @@ export interface DebuggerChild {
   onError(listener: (error: Error) => void): void;
   /** Signal the debugger and everything it started. */
   killTree(signal: NodeJS.Signals): void;
+  /**
+   * Drop this side of the command pipes. A process keeps its end open until it
+   * exits, and this process holds a descriptor for each until then, so a
+   * debugger that has been signalled and outlives the signal keeps three
+   * descriptors alive for as long as the server runs.
+   */
+  closePipes(): void;
 }
 
 /**
@@ -139,6 +146,15 @@ class NodeDebuggerChild implements DebuggerChild {
       // No such group: fall back to the debugger itself.
       this.child.kill(signal);
     }
+  }
+
+  closePipes(): void {
+    // Destroying the streams closes this end of each pipe, and the child still
+    // exits normally afterwards: the 'close' event waits on the process and on
+    // the pipes, and only the pipes are already done.
+    this.child.stdin?.destroy();
+    this.child.stdout?.destroy();
+    this.child.stderr?.destroy();
   }
 }
 

@@ -88,6 +88,10 @@ export class WinedbgSession {
   // of it per chunk costs a pass over a megabyte for every line printed.
   private scannedChars: number = 0;
   private isReady: boolean = false;
+  // Claimed by start() before it awaits anything and released when it settles,
+  // so a second start in the same tick is refused rather than racing the first
+  // one past a check the first has not yet made true.
+  private startPending: boolean = false;
   // Rejects the in-flight start(). Only the latest start is stored, because
   // start() refuses to run beside another one.
   private initReject: ((err: Error) => void) | null = null;
@@ -128,12 +132,17 @@ export class WinedbgSession {
   // carry included, reaches the caller as a rejection. A synchronous throw would
   // slip past a caller that handles the returned promise.
   async start(args: string[] = []): Promise<void> {
-    if (this.process) {
+    if (this.process || this.startPending) {
       throw new Error("winedbg is already running. Please stop it first.");
     }
+    this.startPending = true;
     const id = ++this.launchId;
     this.stopRequested = false;
-    return this.launch(args, id);
+    try {
+      await this.launch(args, id);
+    } finally {
+      this.startPending = false;
+    }
   }
 
   private async launch(args: string[], id: number): Promise<void> {
@@ -374,7 +383,18 @@ export class WinedbgSession {
     this.terminating.add(child);
     child.killTree("SIGTERM");
     // A debugger stopped inside a trap handler may not answer SIGTERM.
-    const grace = this.runtime.clock.setTimeout(() => child.killTree("SIGKILL"), KILL_GRACE_MS);
+    const grace = this.runtime.clock.setTimeout(() => {
+      child.killTree("SIGKILL");
+      // A process the kernel has not finished with keeps the far end of every
+      // command pipe open, and this process holds a descriptor for each until it
+      // does. Left to wait for a process that may never exit, every start and
+      // stop cycle would add three more.
+      child.closePipes();
+      // Nothing more can be done for a debugger that has survived SIGKILL, and a
+      // start only ever waited a bounded time for it, so stop tracking it
+      // instead of growing the set by one per cycle.
+      this.terminating.delete(child);
+    }, KILL_GRACE_MS);
     grace.unref();
     child.onClose(() => {
       this.terminating.delete(child);

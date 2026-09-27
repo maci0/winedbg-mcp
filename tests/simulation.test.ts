@@ -105,6 +105,8 @@ class SimulatedDebugger implements DebuggerChild {
   /** Commands with a reply still to come: the prompt is owed and will arrive. */
   readonly owed = new Set<string>();
   readonly signals: string[] = [];
+  /** Whether the session has released the command pipes on this side. */
+  pipesClosed = false;
   /** Callbacks scheduled and not yet run: how much is left to simulate. */
   pending = 0;
   private line = "";
@@ -137,6 +139,11 @@ class SimulatedDebugger implements DebuggerChild {
     // killTree call that caused it.
     if (this.closed || (signal === "SIGTERM" && this.trapped)) return;
     this.later(SIGNAL_TO_EXIT_MS, () => this.end(null, signal));
+  }
+
+  /** Set when the pipes are released, which a real one does by dropping descriptors. */
+  closePipes(): void {
+    this.pipesClosed = true;
   }
 
   private readonly dataListeners: ((chunk: string) => void)[] = [];
@@ -434,6 +441,11 @@ async function runScenario(seed: number): Promise<{ transcript: string[]; signal
       if (fake.signals.length > 1 !== fake.needsKilling) {
         fail(`stop() sent ${JSON.stringify(fake.signals)} for a fake that answers or does not`);
       }
+      // One that outlived the escalation is still holding the far end of every
+      // command pipe, so the pipes are this process's to release.
+      if (!fake.ended && !fake.pipesClosed) {
+        fail("a debugger that outlived the kill grace kept its command pipes open");
+      }
     }
     return { transcript, signals: fake.signals };
   } finally {
@@ -465,6 +477,36 @@ describe("session simulation", () => {
     expect(covered).toMatch(/exited with code|killed by/);
     expect(covered).toContain("-> refused");
     expect(covered).toMatch(/-> "ran: /);
+  });
+
+  test("releases the command pipes of a debugger that outlives the kill grace", async () => {
+    // A trapped fake: it ignores SIGTERM, so the grace fires and the pipes are
+    // released on the way to the SIGKILL. The second fake is cooperative, so its
+    // close cancels the grace and there is nothing left of it to release. Both
+    // prompt past the first settle step, since the fake is built before the
+    // session that reads it exists.
+    const clock = new VirtualClock();
+    const trapped = new SimulatedDebugger(clock, () => 0, 12);
+    const stubborn = new WinedbgSession("winedbg", READY_TIMEOUT_MS, { clock, spawn: () => trapped });
+    const ready = await settle(clock, stubborn.start().then(() => ""));
+    expect(ready).toEqual({ ok: true, value: "" });
+    stubborn.stop();
+    clock.advance(AFTER_STOP_MS);
+    expect(trapped.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    // A process the kernel has not finished with keeps the far end of every
+    // pipe open, and this process holds a descriptor for each until it does.
+    expect(trapped.pipesClosed).toBe(true);
+    expect(stubborn.isRunning()).toBe(false);
+
+    const cooperative = new SimulatedDebugger(clock, () => 1, 12);
+    const polite = new WinedbgSession("winedbg", READY_TIMEOUT_MS, { clock, spawn: () => cooperative });
+    expect((await settle(clock, polite.start().then(() => ""))).ok).toBe(true);
+    polite.stop();
+    clock.advance(AFTER_STOP_MS);
+    // Its close arrived first, so the pipes went with it and the escalation that
+    // would have torn them down never ran.
+    expect(cooperative.signals).toEqual(["SIGTERM"]);
+    expect(cooperative.pipesClosed).toBe(false);
   });
 
   test("replays a seed byte for byte", async () => {
