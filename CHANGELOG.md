@@ -5,7 +5,10 @@ All notable changes to this project are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The version is declared in `package.json` and reported to MCP clients from the
-same string; `tests/version.test.ts` fails the build if the two disagree.
+same string; `tests/version.test.ts` fails the build if the two disagree, or if
+the newest section dated below is not the version the package declares. A
+release renames `## [Unreleased]` to the version it ships; `CONTRIBUTING.md`
+section 4 is the order.
 
 ## [Unreleased]
 
@@ -36,6 +39,16 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
   the test fixture a CRLF shebang that fails to exec.
 - A statement of the supported platforms (Linux and macOS) in the README.
   `winedbg_stop` needs POSIX process groups and the README claimed no OS.
+- A command line: `-h` and `--help` print the usage on stdout, `--version`
+  prints the `package.json` version, and an argument the server has no use for
+  is refused with exit code 2 and a pointer to `--help`. The command line is
+  resolved before the environment, so both flags work in a deployment whose
+  `WINEDBG_MCP_*` value the server would otherwise refuse to start on.
+- CI type-checks the test suite (`tsc -p tsconfig.test.json`) as well as `src/`,
+  next to the Biome check the gate runs locally.
+- A fuzz suite over the tool-argument boundary. A case that fails is replayed
+  from the `WINEDBG_MCP_SIM_SEED` it was found under, so a report carries a seed
+  rather than a transcript.
 
 ### Changed
 
@@ -51,6 +64,34 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 - CI builds the package and runs `scripts/verify-artifact.sh`, which runs the
   compiled entry point under both `node` and `bun` and rejects source or map
   files in `build/`. The suite alone only ever exercised `src/`.
+- Tool arguments are bounded and refused at the boundary instead of reaching
+  `winedbg`: at most 64 `args` entries, at most 4096 characters per entry and
+  per command, and a command carrying a line break (`\n`, `\r`, vertical tab,
+  form feed, U+0085, U+2028, U+2029) or a NUL is rejected with the field named.
+- `winedbg_start` waits for a debugger a previous stop signalled to be gone
+  before spawning its own, so a client alternating the two no longer leaves a
+  detached process group per cycle, and a stop arriving during a start cancels
+  that start rather than leaving a debugger nobody is waiting on.
+- `tests/version.test.ts` fails when the newest dated changelog section is not
+  the version the package declares, and when the released versions are repeated
+  or listed oldest first. A version bump with no release section, and a dated
+  section with no bump, now fail the gate rather than shipping.
+
+### Notes for users
+
+- A `winedbg_execute` command longer than 4096 characters or carrying a line
+  break, and a `winedbg_start` with more than 64 arguments, are error results
+  now. 1.0.0 passed them to `winedbg`, where each one drew its own prompt and
+  put every later reply a command behind. Shorten the command, or send the
+  program path in `args` and the debugger command one line at a time.
+- A `winedbg_start` can now be answered with "winedbg stopped before it was
+  ready" or "winedbg was not started: a newer winedbg_start call replaced this
+  one". Both are error results, and both mean the call did not leave a
+  debugger behind.
+- The stderr log changed shape: 1.0.0 wrote a `[winedbg-mcp] event detail` line
+  per event, and each event is now one JSON object on its own line, at the level
+  `WINEDBG_MCP_LOG_LEVEL` sets. A log aggregator reading the old line has to
+  read the new one.
 
 ### Fixed
 
@@ -82,6 +123,24 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 - The command-line tests inherit a test deadline above their own spawn
   timeout. On a loaded machine a child that had not finished starting was
   abandoned and reported as exit code 143 rather than as the hang it was.
+- A spawn or pipe failure inside a tool call reached the client as the bare
+  spawn error. The tool now answers with what failed and the path or command
+  involved.
+- The server signalled the debugger on exit and left immediately, so a debugger
+  stopped inside a trap handler, and the program under debug, were still
+  running after the server had said goodbye. Shutdown waits for them, within
+  the 4s bound the exit code already promised.
+- A debugger pipe that broke mid-session took the server down with it. The
+  session settles instead, and the server keeps answering later calls.
+- A reply cut between the two halves of a surrogate pair produced a broken
+  pair, and a cut that a decode boundary moved landed mid-character. The cut
+  now falls on a whole character, and an unkillable child is dropped rather
+  than left to hold the session open.
+- The debugger's pipes are released once the kill escalation has killed it, so
+  a stop no longer leaves a session holding descriptors to a dead child.
+- CI actions are pinned to a commit and the workflow token is scoped to
+  `contents: read`, so a moved tag or a wider token is a diff rather than a
+  surprise.
 
 ## [1.0.0] - 2026-09-27
 
@@ -102,9 +161,10 @@ First release. There is no earlier version to upgrade from.
 
 ### Notes for users
 
-- One command per `winedbg_execute` call. A command carrying a line terminator
-  is rejected, because each line draws its own prompt and puts every later reply
-  one command behind.
+- One command per `winedbg_execute` call. A command carrying a line break is
+  rejected as of the next release, because each line draws its own prompt and
+  puts every later reply one command behind. 1.0.0 passed such a command to
+  `winedbg`; see the Unreleased notes for the bounds that go with it.
 - After a command times out, further commands are refused until the debugger
   prints its prompt again. Call `winedbg_stop` and start again if it never does.
 - A single reply is buffered up to 1M code points. Past the cap the oldest

@@ -603,7 +603,7 @@ describe("shutdown", () => {
     // away is polled rather than sampled once.
     expect(await waitForExit(debuggee, REAP_TIMEOUT_MS)).toBe(true);
     expect(s.isRunning()).toBe(false);
-  });
+  }, 10000);
 
   test("resolves when nothing is running", async () => {
     const s = newSession();
