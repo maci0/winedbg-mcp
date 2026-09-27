@@ -430,6 +430,30 @@ describe("executeCommand", () => {
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
 
+  // A reply past the cap that is given up on before it answers leaves the trim's
+  // count behind with no reply to attach it to.
+  test("does not carry a dropped count into a later command's reply", async () => {
+    const s = await startedSession();
+    await expect(s.executeCommand(`dribble:${OVERFLOW_CHARS}`, 1)).rejects.toThrow(/timed out/);
+    // The abandoned reply is still arriving, and the session refuses commands
+    // until the prompt it owes has drained, so the next one waits for that
+    // rather than racing it.
+    let out = "";
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      try {
+        out = await s.executeCommand("bt", 1000);
+        break;
+      } catch {
+        await Bun.sleep(50);
+      }
+    }
+    // Seven characters came back, and seven are what a reply that dropped
+    // nothing looks like. A notice here would be claiming the cap cost a
+    // command whose output never reached it.
+    expect(out).toBe("ran: bt");
+  }, 40000);
+
   test("cuts the overflow on a character boundary, not inside a surrogate pair", async () => {
     const s = await startedSession();
     const out = await s.executeCommand(`astral:${ASTRAL_CHARS}`);
@@ -611,6 +635,26 @@ describe("logging", () => {
         .slice(before)
         .map((r) => r["message"]),
     ).not.toContain("winedbg exited");
+  });
+
+  test("a requested stop records the exit at info, and how long the session lived", async () => {
+    const { session: s, records } = loggedSession();
+    await s.start([FAKE]);
+    await s.executeCommand("bt");
+    const before = records().length;
+    s.stop();
+    // stop() returns once the signal is sent, so the close that ends the
+    // session is still on its way, and a stop detaches the child before it
+    // arrives. The exit is the record that says the debugger is really gone.
+    await Bun.sleep(KILL_WAIT_MS);
+    const exits = records()
+      .slice(before)
+      .filter((candidate) => candidate["message"] === "winedbg exited after a requested stop");
+    expect(exits).toHaveLength(1);
+    expect(exits[0]?.["level"]).toBe("info");
+    expect(exits[0]?.["wasReady"]).toBe(true);
+    expect(exits[0]?.["signal"]).toBe("SIGTERM");
+    expect(typeof exits[0]?.["lifetimeMs"]).toBe("number");
   });
 });
 

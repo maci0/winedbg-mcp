@@ -289,10 +289,16 @@ async function settle(clock: VirtualClock, pending: Promise<string>): Promise<Ou
     },
   );
 
+  // Only the event loop is real here: this drains the promise callbacks a
+  // fired timer settled. No host time passes and nothing waits on a pipe. It
+  // runs once before the clock moves at all, because a start spawns on a
+  // microtask rather than on the clock: a first step that advanced first handed
+  // the fake's first prompt to a session that had not attached a listener yet,
+  // so a prompt a few virtual milliseconds out was lost and the start timed out
+  // on a debugger that was about to answer.
+  await new Promise<void>((resolve) => setImmediate(resolve));
   for (let step = 0; step < MAX_STEPS && box.outcome === null; step++) {
     clock.advance(STEP_MS);
-    // Only the event loop is real here: this drains the promise callbacks a
-    // fired timer settled. No host time passes and nothing waits on a pipe.
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   await tracked;
@@ -469,6 +475,9 @@ describe("session simulation", () => {
       run.push(`seed ${seed}: ${transcript.join(" | ")}`);
     }
     expect(run).toHaveLength(seeds.length);
+    // A replay of one seed covers one outcome, so it cannot say anything about
+    // what the seed list reaches. The assertions below are about the list.
+    if (only !== undefined) return;
 
     // The sweep is only worth running if it reaches the interesting states.
     // A seed list that quietly stopped covering them is worse than no sweep.

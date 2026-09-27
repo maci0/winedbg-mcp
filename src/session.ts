@@ -172,8 +172,12 @@ export class WinedbgSession {
   // start, so each reports the state the caller has to act on.
   private stopRequested: boolean = false;
   // Set by stop() before the kill, so the close that follows is reported as the
-  // requested end of a session rather than as a debugger that died.
-  private stoppedByRequest: boolean = false;
+  // requested end of a session rather than as a debugger that died. Keyed by the
+  // child and carrying the readiness it had when the stop reached it, because a
+  // stop detaches that child: by the time its close arrives the session is
+  // looking at something else, and a flag on the session could not say which
+  // child the close belonged to.
+  private stopRequests: Map<DebuggerChild, boolean> = new Map();
 
   constructor(
     private readonly binary: string = DEFAULT_BINARY,
@@ -257,7 +261,6 @@ export class WinedbgSession {
     // A previous session can die leaving a prompt in the buffer; without this
     // reset the next start would report ready before the new child says anything.
     this.resetState();
-    this.stoppedByRequest = false;
 
     let child: DebuggerChild;
     try {
@@ -356,7 +359,24 @@ export class WinedbgSession {
       child.onData(onData);
 
       child.onClose((code, signal) => {
-        if (!isCurrent()) return;
+        // A stop detached this child before its close arrived, so the session no
+        // longer holds it and the currency guard below would drop the exit. The
+        // stop asked for that exit, so it is written from here, naming the
+        // readiness the child had when the stop reached it.
+        const wasReadyAtStop = this.stopRequests.get(child);
+        this.stopRequests.delete(child);
+        if (!isCurrent()) {
+          if (wasReadyAtStop !== undefined) {
+            this.log.info("winedbg exited after a requested stop", {
+              code,
+              signal,
+              wasReady: wasReadyAtStop,
+              pid: child.pid ?? null,
+              lifetimeMs: Date.now() - startedAt,
+            });
+          }
+          return;
+        }
         const wasReady = this.isReady;
         this.process = null;
         this.isReady = false;
@@ -365,15 +385,13 @@ export class WinedbgSession {
         // A debugger that dies on its own, after a prompt, is the failure an
         // operator has to tell apart from a requested stop: nothing in the tool
         // result says the process went away underneath the call.
-        const fields = {
+        this.log.error("winedbg exited", {
           code,
           signal,
           wasReady,
           pid: child.pid ?? null,
           lifetimeMs: Date.now() - startedAt,
-        };
-        if (this.stoppedByRequest) this.log.info("winedbg exited after a requested stop", fields);
-        else this.log.error("winedbg exited", fields);
+        });
         // A child that dies before printing a prompt fails start now, rather
         // than hanging until the ready timeout.
         const initReject = wasReady ? null : this.initReject;
@@ -524,8 +542,10 @@ export class WinedbgSession {
       child.closePipes();
       // Nothing more can be done for a debugger that has survived SIGKILL, and a
       // start only ever waited a bounded time for it, so stop tracking it
-      // instead of growing the set by one per cycle.
+      // instead of growing the set by one per cycle. The stop's record goes with
+      // it, for the same reason: its close will never arrive to read it.
       this.terminating.delete(child);
+      this.stopRequests.delete(child);
     }, KILL_GRACE_MS);
     grace.unref();
     child.onClose(() => {
@@ -567,16 +587,22 @@ export class WinedbgSession {
     return nextCharacterBoundary(this.buffer, codePoint);
   }
 
+  /**
+   * Drop buffered output, and with it what the trim had to drop to hold the cap.
+   * The count goes with the text: it describes a reply that was never delivered,
+   * and a command whose output is discarded here would otherwise open its own
+   * reply with a notice about characters the debugger never lost for it.
+   */
   private clearBuffer() {
     this.buffer = "";
     this.tail = "";
+    this.droppedChars = 0;
   }
 
   /** Drop everything a run leaves behind: buffered output, readiness, owed prompts. */
   private resetState() {
     this.isReady = false;
     this.awaitingAbandonedPrompt = false;
-    this.droppedChars = 0;
     this.clearBuffer();
   }
 
@@ -777,8 +803,8 @@ export class WinedbgSession {
     if (!child) return null;
 
     this.process = null;
+    this.stopRequests.set(child, this.isReady);
     this.resetState();
-    this.stoppedByRequest = true;
     // A start() in flight outlives neither this stop nor its ready timer: the
     // caller is awaiting a prompt that can no longer arrive.
     const initReject = this.initReject;

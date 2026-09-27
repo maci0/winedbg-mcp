@@ -104,6 +104,23 @@ section 4 is the order.
 
 ### Fixed
 
+- `winedbg_stop` logged nothing. A stop releases the debugger before its close
+  arrives, so the close handler's currency guard dropped that close, and the
+  `info` record the README promises for a requested stop never ran. The stop is
+  now recorded against the child it released, and the exit is written from
+  there, with the code or signal, the pid and how long the session lived.
+- A dropped-output count leaked into a later reply. A reply past the buffer cap
+  that was given up on before it answered left the trim's count behind with no
+  reply to attach it to, so the next command opened with a notice claiming
+  characters its own output never lost. The count is dropped with the text it
+  describes.
+- `WINEDBG_MCP_SIM_SEED=<seed> bun test tests/simulation.test.ts`, the replay the
+  README documents, reported a false failure on every seed. The sweep asserted
+  that the whole seed list reaches its interesting states, which one replayed
+  seed cannot show, and the settle loop advanced the virtual clock before the
+  start it was waiting on had spawned, so a prompt a few virtual milliseconds
+  out was emitted to a session with no listener attached and the start timed
+  out on a debugger that was about to answer.
 - Three README claims the code did not implement: that the audit log strips
   control characters and truncates the text it records, that a command logs the
   size of its reply, and that `src/index.ts` carries four `noConsole`
