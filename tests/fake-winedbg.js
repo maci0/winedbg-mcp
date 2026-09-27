@@ -8,8 +8,7 @@
 // same, in pieces small enough to arrive one read at a time), utf8 (a non-ASCII
 // reply written one byte at a time, so every character spans two reads),
 // "utf8:<text>" (that text in UTF-8, one byte per write), "astral:<n>" (n emoji,
-// two UTF-16 units each), "split:<n>" (n multi-byte characters, the last one cut
-// across two writes), anything else echoes back.
+// two UTF-16 units each), anything else echoes back.
 // Invoked with "die" as argv[2] it exits before printing a prompt; with "mute"
 // it stays alive and never prints one, so the caller hits its start timeout;
 // with "grandchild" it starts a debuggee of its own, which is what a real
@@ -133,18 +132,6 @@ function handle(line) {
       setTimeout(writeByte, 3);
     };
     writeByte();
-    return;
-  }
-  if (line.startsWith("split:")) {
-    // A character whose bytes straddle two writes, so the reader is handed the
-    // first half of it on its own: what its decoder has to carry over.
-    const bytes = Buffer.from("€".repeat(Number(line.slice("split:".length))), "utf8");
-    const half = bytes.length - 1;
-    process.stdout.write(bytes.subarray(0, half));
-    setTimeout(() => {
-      process.stdout.write(bytes.subarray(half));
-      process.stdout.write("Wine-dbg>");
-    }, 20);
     return;
   }
   if (line.startsWith("sleep:")) {

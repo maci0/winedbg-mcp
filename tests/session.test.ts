@@ -483,7 +483,10 @@ describe("shutdown", () => {
     // The child was released by the first stop, so the second one has nothing to
     // signal: it settles the same cleanup rather than starting a second.
     await s.shutdown();
-    expect(() => process.kill(debuggee, 0)).toThrow();
+    // The second shutdown resolves on the same termination the first waited
+    // for, and a reap can lag the close that wait is built on, so the pid going
+    // away is polled rather than sampled once.
+    expect(await waitForExit(debuggee, KILL_WAIT_MS)).toBe(true);
     expect(s.isRunning()).toBe(false);
   });
 

@@ -34,10 +34,15 @@ describe("tool list", () => {
   // empty line, which draws a prompt and an empty reply, and the model sees a
   // successful command it never asked for.
   test("marks command as required, and nothing else", () => {
-    const byName = new Map(TOOLS.map((tool) => [tool.name, tool.inputSchema]));
-    expect(byName.get("winedbg_execute")!.required).toEqual(["command"]);
-    expect(byName.get("winedbg_start")!.required).toBeUndefined();
-    expect(byName.get("winedbg_stop")!.required).toBeUndefined();
+    // The schemas differ in more than the required list, so the map is read
+    // through a shape both of them fit.
+    const byName = new Map<string, { properties: Record<string, unknown>; required?: readonly string[] }>(
+      TOOLS.map((tool) => [tool.name, tool.inputSchema]),
+    );
+    const required = (name: string) => byName.get(name)?.required;
+    expect(required("winedbg_execute")).toEqual(["command"]);
+    expect(required("winedbg_start")).toBeUndefined();
+    expect(required("winedbg_stop")).toBeUndefined();
   });
 });
 
@@ -103,7 +108,7 @@ describe("callTool", () => {
         },
       }),
       "winedbg_stop",
-      undefined
+      undefined,
     );
     expect(stops).toBe(1);
     expect(result.isError).toBeUndefined();
@@ -118,7 +123,7 @@ describe("callTool", () => {
         },
       }),
       "winedbg_stop",
-      undefined
+      undefined,
     );
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toBe("Error: winedbg is not running. Please start it first.");

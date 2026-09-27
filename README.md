@@ -33,7 +33,7 @@ Source layout, one concern per module:
 | `src/logger.ts` | the stderr log line format and the level filter |
 | `src/config.ts` | reading and validating the environment |
 | `src/constants.ts` | defaults and limits shared across the above |
-| `src/version.ts` | the version string reported to MCP clients |
+| `src/version.ts` | the version reported to MCP clients, read from `package.json` |
 | `scripts/verify-artifact.sh` | asserts the built entry point runs and ships nothing but compiled JavaScript |
 
 ## Prerequisites

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { SERVER_VERSION } from "./version.js";
 
 const USAGE = `Usage: winedbg-mcp [OPTION]
 
@@ -52,23 +52,10 @@ export function parseCliArgs(argv: readonly string[]): CliAction {
       case "--help":
         return { kind: "help", usage: USAGE };
       case "--version":
-        return { kind: "version", version: readVersion() };
+        return { kind: "version", version: SERVER_VERSION };
       default:
         throw new UsageError(`Unknown argument: ${arg}`);
     }
   }
   return { kind: "serve" };
-}
-
-/**
- * The version package.json declares, so the reported name, the MCP
- * implementation version, and the published package cannot drift apart.
- */
-export function readVersion(): string {
-  const manifest = readFileSync(new URL("../package.json", import.meta.url), "utf8");
-  const version: unknown = JSON.parse(manifest).version;
-  if (typeof version !== "string" || version.length === 0) {
-    throw new Error("package.json declares no version");
-  }
-  return version;
 }

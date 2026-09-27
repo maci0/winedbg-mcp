@@ -7,27 +7,29 @@
 // stream is touched.
 
 import { describe, expect, test } from "bun:test";
-import { createLogger, formatRecord, type LogFields } from "../src/logger.js";
+import { createLogger, type LogFields } from "../src/logger.js";
+
+const NOW = "2026-09-27T10:00:00.000Z";
 
 function collecting(level: "debug" | "info" | "warn" | "error") {
   const lines: string[] = [];
   const log = createLogger(
     level,
     (line) => lines.push(line),
-    () => new Date("2026-09-27T10:00:00.000Z")
+    () => new Date(NOW),
   );
   return { log, lines, records: () => lines.map((line) => JSON.parse(line) as LogFields) };
 }
 
-describe("formatRecord", () => {
+describe("createLogger", () => {
   test("a line is one JSON object carrying time, level, message and the fields", () => {
-    const line = formatRecord("2026-09-27T10:00:00.000Z", "info", "tool call finished", {
-      callId: "call-7",
-      durationMs: 12,
-    });
+    const { log, lines } = collecting("info");
+    log.info("tool call finished", { callId: "call-7", durationMs: 12 });
+    const [line] = lines;
+    if (line === undefined) throw new Error("nothing was written");
     expect(line).not.toContain("\n");
     expect(JSON.parse(line)).toEqual({
-      time: "2026-09-27T10:00:00.000Z",
+      time: NOW,
       level: "info",
       message: "tool call finished",
       callId: "call-7",
@@ -37,22 +39,21 @@ describe("formatRecord", () => {
 
   test("a value carrying newlines stays on the line that carries it", () => {
     // A multiline winedbg reply reaching a field is what breaks a line parser.
-    const line = formatRecord("2026-09-27T10:00:00.000Z", "error", "winedbg exited", {
-      error: "first line\nsecond line",
-    });
+    const { log, lines } = collecting("error");
+    log.error("winedbg exited", { error: "first line\nsecond line" });
+    const [line] = lines;
+    if (line === undefined) throw new Error("nothing was written");
     expect(line.split("\n")).toHaveLength(1);
     expect(JSON.parse(line).error).toBe("first line\nsecond line");
   });
-});
 
-describe("createLogger", () => {
   test("a line below the configured level is not written", () => {
-    const { log, lines } = collecting("warn");
+    const { log, lines, records } = collecting("warn");
     log.debug("winedbg command sent", { command: "bt" });
     log.info("tool call finished", { callId: "call-1" });
     log.warn("tool call failed", { callId: "call-1" });
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!).level).toBe("warn");
+    expect(records()[0]?.["level"]).toBe("warn");
   });
 
   test("every level is written at debug, each one named", () => {
@@ -61,7 +62,7 @@ describe("createLogger", () => {
     log.info("i");
     log.warn("w");
     log.error("e");
-    expect(records().map((r) => r.level)).toEqual(["debug", "info", "warn", "error"]);
+    expect(records().map((r) => r["level"])).toEqual(["debug", "info", "warn", "error"]);
   });
 
   test("a line with no fields still has the three fields every line has", () => {
@@ -69,7 +70,7 @@ describe("createLogger", () => {
     log.info("shutting down", { reason: "signal SIGTERM" });
     log.info("winedbg stopped");
     expect(records()[1]).toEqual({
-      time: "2026-09-27T10:00:00.000Z",
+      time: NOW,
       level: "info",
       message: "winedbg stopped",
     });
