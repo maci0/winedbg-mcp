@@ -1,6 +1,6 @@
 import { BINARY_VAR } from "./config.js";
-import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
-import { type Logger, stderrLogger } from "./logger.js";
+import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS, LINE_BREAKS } from "./constants.js";
+import { describeError, type Logger, stderrLogger } from "./logger.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
 import { nodeRuntime } from "./runtime.js";
 
@@ -19,15 +19,9 @@ const KILL_GRACE_MS = 2000;
 // before spawning its own, so a client alternating start and stop cannot leave a
 // detached process group per cycle. It exceeds the grace by the time a SIGKILL
 // needs to land and the close event to arrive; past it the start proceeds, since
-// an unresponsive child must not wedge the tool.
-const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
-// The debugger answers one line with one prompt, so a command is one line only
-// if it is one line under every reader: a stream reader splits on \n, \r and
-// vertical tab, and a text decoder that honours the Unicode line breaks splits
-// on NEL (U+0085), U+2028 and U+2029 too. NUL is not a line break but truncates
-// the line for most C readers, leaving the reply stream one prompt out of step
-// the same way a second line would.
-export const LINE_BREAKS = /[\n\r\v\f\0\u0085\u2028\u2029]/;
+// an unresponsive child must not wedge the tool. The --help text names this
+// bound, so it is exported rather than restated there.
+export const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
 
 /**
  * Code points in `text[0, end)`, which is what a reader counts, not the UTF-16
@@ -165,19 +159,16 @@ export class WinedbgSession {
     } catch (error) {
       // spawn() throws before a child exists when an argument cannot be carried,
       // and its message names neither the variable nor the argument. Nothing is
-      // running, so refusing the next start is not a concern here. Rejected
-      // rather than thrown: every other start failure arrives that way, and a
-      // caller with only a .catch() on the result would miss this.
+      // running, so refusing the next start is not a concern here. launch() is
+      // async, so throwing here rejects the promise start() returned, the same
+      // way every other start failure arrives.
+      const reason = describeError(error);
       this.log.error("winedbg could not be spawned", {
         binary: this.binary,
         args: JSON.stringify(args),
-        error: error instanceof Error ? error.message : String(error),
+        error: reason,
       });
-      return Promise.reject(
-        new Error(
-          `Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-      );
+      throw new Error(`Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${reason}`);
     }
     this.process = child;
     const startedAt = Date.now();
@@ -197,8 +188,8 @@ export class WinedbgSession {
       // event carried it: the child exiting, the child erroring, or one of its
       // output pipes failing.
       const fail = (error: Error) => {
-        const failStart = !this.isReady && this.initReject !== null;
-        if (failStart) this.initReject = null;
+        const initReject = this.isReady ? null : this.initReject;
+        this.initReject = null;
         this.clearReadyTimer();
         // A child that never got a pid never ran, so it is not a session:
         // leaving it set would refuse every later start with "already running"
@@ -209,11 +200,7 @@ export class WinedbgSession {
           this.isReady = false;
           this.awaitingAbandonedPrompt = false;
         }
-        if (failStart) reject(error);
-        if (this.currentPromise) {
-          this.currentPromise.reject(error);
-          this.releaseCurrent();
-        }
+        this.failChild(error, initReject);
       };
 
       this.initReject = reject;
@@ -338,13 +325,13 @@ export class WinedbgSession {
             }),
         ),
       );
-      let timer: NodeJS.Timeout | undefined;
+      let timer: Timer | undefined;
       const expired = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, TERMINATION_WAIT_MS);
+        timer = this.runtime.clock.setTimeout(resolve, TERMINATION_WAIT_MS);
         timer.unref();
       });
       await Promise.race([closed, expired]);
-      if (timer) clearTimeout(timer);
+      if (timer) timer.cancel();
       if (this.terminating.size >= children.length) {
         // The wait expired with nothing reaped. An entry only exists to hold the
         // next start off, and a child that outlived SIGKILL is not going to
@@ -560,15 +547,9 @@ export class WinedbgSession {
         // The write failed part way, so the debugger may hold the command and
         // still owe a prompt. Release the slot instead of leaving every later
         // command refused as in progress.
-        this.log.error("winedbg command could not be written", {
-          command,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        this.abandonCurrent(
-          new Error(
-            `Failed to send ${JSON.stringify(command)} to winedbg: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-        );
+        const reason = describeError(error);
+        this.log.error("winedbg command could not be written", { command, error: reason });
+        this.abandonCurrent(new Error(`Failed to send ${JSON.stringify(command)} to winedbg: ${reason}`));
       }
     });
   }

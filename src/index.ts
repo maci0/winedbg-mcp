@@ -5,7 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { parseCliArgs, UsageError } from "./cli.js";
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
-import { createLogger } from "./logger.js";
+import { createLogger, describeError } from "./logger.js";
 import { WinedbgSession } from "./session.js";
 import { callTool, TOOLS, type ToolResult } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
@@ -37,7 +37,7 @@ try {
   config = loadConfig(process.env);
 } catch (error) {
   // biome-ignore lint/suspicious/noConsole: stdout carries the JSON-RPC stream, so stderr is the only channel a startup failure can be reported on.
-  console.error(`Configuration error: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`Configuration error: ${describeError(error)}`);
   process.exit(1);
 }
 
@@ -85,7 +85,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       callId,
       tool,
       durationMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
+      error: describeError(error),
     });
     throw error;
   }
@@ -139,7 +139,7 @@ async function main() {
 
 main().catch((error) => {
   log.error("server could not start", {
-    error: error instanceof Error ? error.message : String(error),
+    error: describeError(error),
     stack: error instanceof Error ? (error.stack ?? null) : null,
   });
   process.exit(1);

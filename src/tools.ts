@@ -1,5 +1,6 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
+import { describeError } from "./logger.js";
 import type { WinedbgSession } from "./session.js";
 import { optionalTimeout, requireString, requireStringArray } from "./validate.js";
 
@@ -58,8 +59,8 @@ export const TOOLS = [
   },
 ] as const;
 
-function text(text: string): ToolResult {
-  return { content: [{ type: "text", text }] };
+function textResult(body: string): ToolResult {
+  return { content: [{ type: "text", text: body }] };
 }
 
 /**
@@ -78,19 +79,19 @@ export async function callTool(
       case "winedbg_start": {
         const startArgs = requireStringArray(args?.["args"], "args");
         await session.start(startArgs);
-        return text(`winedbg started successfully with args: ${startArgs.join(" ")}`);
+        return textResult(`winedbg started successfully with args: ${startArgs.join(" ")}`);
       }
 
       case "winedbg_execute": {
         const command = requireString(args?.["command"], "command");
         const timeout = optionalTimeout(args?.["timeout"]);
         const output = await session.executeCommand(command, timeout);
-        return text(output || "(Command executed successfully, no output)");
+        return textResult(output || "(Command executed successfully, no output)");
       }
 
       case "winedbg_stop": {
         session.stop();
-        return text("winedbg session stopped.");
+        return textResult("winedbg session stopped.");
       }
 
       default:
@@ -98,7 +99,7 @@ export async function callTool(
     }
   } catch (error) {
     if (error instanceof McpError && error.code === ErrorCode.MethodNotFound) throw error;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeError(error);
     return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
   }
 }

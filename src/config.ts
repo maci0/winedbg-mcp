@@ -56,10 +56,11 @@ function parseLogLevel(raw: string | undefined): LogLevel {
   // A level nothing logs at, or one nobody recognizes, silences the server's
   // diagnostics without saying so. Refuse it the way the other values are
   // refused: at startup, with the variable named.
-  if (!(LOG_LEVELS as readonly string[]).includes(value)) {
+  const level = LOG_LEVELS.find((candidate) => candidate === value);
+  if (level === undefined) {
     throw new Error(`${LOG_LEVEL_VAR} must be one of ${LOG_LEVELS.join(", ")}, got "${raw}"`);
   }
-  return value as LogLevel;
+  return level;
 }
 
 function parseBinary(raw: string | undefined): string {

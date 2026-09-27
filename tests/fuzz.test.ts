@@ -18,8 +18,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/constants.js";
-import { LINE_BREAKS } from "../src/session.js";
+import { DEFAULT_COMMAND_TIMEOUT_MS, LINE_BREAKS, MAX_COMMAND_TIMEOUT_MS } from "../src/constants.js";
 import { callTool, type ToolResult, type ToolSession } from "../src/tools.js";
 import {
   MAX_ARG_CHARS,

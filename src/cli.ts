@@ -1,5 +1,15 @@
+import {
+  DEFAULT_BINARY,
+  DEFAULT_LOG_LEVEL,
+  DEFAULT_READY_TIMEOUT_MS,
+  LOG_LEVELS,
+  MAX_READY_TIMEOUT_MS,
+} from "./constants.js";
+import { TERMINATION_WAIT_MS } from "./session.js";
 import { SERVER_VERSION } from "./version.js";
 
+// Every number here is read from the constant the code enforces, so the help
+// cannot name a default or a limit the server does not apply.
 const USAGE = `Usage: winedbg-mcp [OPTION]
 
 MCP server for the Wine debugger. An MCP client launches it and speaks JSON-RPC
@@ -13,10 +23,10 @@ Options:
 With no option the server starts and waits for a client on stdin.
 
 Environment:
-  WINEDBG_MCP_BINARY             winedbg command or path. Default: winedbg
+  WINEDBG_MCP_BINARY             winedbg command or path. Default: ${DEFAULT_BINARY}
   WINEDBG_MCP_READY_TIMEOUT_MS  Milliseconds to wait for the first winedbg
-                                prompt, 1 to 600000. Default: 10000
-  WINEDBG_MCP_LOG_LEVEL          debug, info, warn or error. Default: info
+                                prompt, 1 to ${MAX_READY_TIMEOUT_MS}. Default: ${DEFAULT_READY_TIMEOUT_MS}
+  WINEDBG_MCP_LOG_LEVEL          ${LOG_LEVELS.join(", ")}. Default: ${DEFAULT_LOG_LEVEL}
 
 Example MCP client configuration:
   {
@@ -30,7 +40,7 @@ Example MCP client configuration:
 
 Exit codes:
   0  Clean shutdown on SIGINT, SIGTERM, or end of stdin. winedbg and the
-     debuggee it started are waited for, up to 4s, so neither is left running
+     debuggee it started are waited for, up to ${TERMINATION_WAIT_MS / 1000}s, so neither is left running
   1  A configuration value the server cannot use, or a failed start
   2  An unknown or invalid command-line argument
 `;

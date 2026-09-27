@@ -1,6 +1,5 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
-import { LINE_BREAKS } from "./session.js";
+import { DEFAULT_COMMAND_TIMEOUT_MS, LINE_BREAKS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
 
 // Tool arguments arrive as untyped JSON and the SDK does not enforce the
 // inputSchema it advertises, so these are the trust boundary for everything
@@ -21,12 +20,13 @@ export const MAX_START_ARGS = 64;
 // the client named, with nothing anywhere reporting the substitution.
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
+function invalidParams(message: string): McpError {
+  return new McpError(ErrorCode.InvalidParams, message);
+}
+
 function requireEncodable(value: string, field: string): string {
   if (LONE_SURROGATE.test(value)) {
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      `${field} contains an unpaired UTF-16 surrogate, which no UTF-8 byte sequence can carry`,
-    );
+    throw invalidParams(`${field} contains an unpaired UTF-16 surrogate, which no UTF-8 byte sequence can carry`);
   }
   return value;
 }
@@ -34,28 +34,25 @@ function requireEncodable(value: string, field: string): string {
 export function requireStringArray(value: unknown, field: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
-    throw new McpError(ErrorCode.InvalidParams, `${field} must be an array of strings`);
+    throw invalidParams(`${field} must be an array of strings`);
   }
   if (value.length > MAX_START_ARGS) {
-    throw new McpError(ErrorCode.InvalidParams, `${field} must have at most ${MAX_START_ARGS} entries`);
+    throw invalidParams(`${field} must have at most ${MAX_START_ARGS} entries`);
   }
   // Narrowed item by item rather than asserted: Array.isArray only proves the
   // array, not its elements, and this list goes straight to spawn.
   const items: string[] = [];
   for (const [index, item] of value.entries()) {
     if (typeof item !== "string") {
-      throw new McpError(ErrorCode.InvalidParams, `${field} must be an array of strings`);
+      throw invalidParams(`${field} must be an array of strings`);
     }
     if (item.length > MAX_ARG_CHARS) {
-      throw new McpError(ErrorCode.InvalidParams, `${field} entries must be at most ${MAX_ARG_CHARS} characters`);
+      throw invalidParams(`${field} entries must be at most ${MAX_ARG_CHARS} characters`);
     }
     // A NUL cannot reach execve, so spawn() rejects the whole call with
     // ERR_INVALID_ARG_VALUE naming neither the argument nor its index.
     if (item.includes("\0")) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
-        `${field}[${index}] contains a NUL byte, which no argument can carry`,
-      );
+      throw invalidParams(`${field}[${index}] contains a NUL byte, which no argument can carry`);
     }
     items.push(requireEncodable(item, field));
   }
@@ -64,14 +61,13 @@ export function requireStringArray(value: unknown, field: string): string[] {
 
 export function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new McpError(ErrorCode.InvalidParams, `${field} must be a non-empty string`);
+    throw invalidParams(`${field} must be a non-empty string`);
   }
   if (value.length > MAX_COMMAND_CHARS) {
-    throw new McpError(ErrorCode.InvalidParams, `${field} must be at most ${MAX_COMMAND_CHARS} characters`);
+    throw invalidParams(`${field} must be at most ${MAX_COMMAND_CHARS} characters`);
   }
   if (LINE_BREAKS.test(value)) {
-    throw new McpError(
-      ErrorCode.InvalidParams,
+    throw invalidParams(
       `${field} must be a single line: no line break (\\n, \\r, \\v, \\f, U+0085, U+2028, U+2029) and no NUL`,
     );
   }
@@ -85,10 +81,7 @@ export function optionalTimeout(value: unknown): number {
   // fraction is the same problem in smaller units: the stated floor is a whole
   // millisecond, and one below it is not a timeout anyone asked for.
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > MAX_COMMAND_TIMEOUT_MS) {
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      `timeout must be a whole number of milliseconds between 1 and ${MAX_COMMAND_TIMEOUT_MS}`,
-    );
+    throw invalidParams(`timeout must be a whole number of milliseconds between 1 and ${MAX_COMMAND_TIMEOUT_MS}`);
   }
   return value;
 }
