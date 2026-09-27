@@ -102,10 +102,20 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 
 ## Tools Available
 
-- **`winedbg_start`**: Start or attach to `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works: the program to launch (e.g. `{"args": ["myapp.exe"]}`) or a PID to attach to (`{"args": ["1234"]}`). `args` must be an array of strings; a bare string is rejected rather than split into one argument per character.
+- **`winedbg_start`**: Start or attach to `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works: the program to launch (e.g. `{"args": ["myapp.exe"]}`) or a PID to attach to (`{"args": ["1234"]}`). `args` must be an array of strings; a bare string is rejected rather than split into one argument per character. At most 64 entries, each at most 4096 characters, none carrying a NUL: an argv entry is cut at the first NUL by the C runtime, and an unbounded array is a caller filling the process table rather than a debugging session.
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
-  Takes an optional `timeout` in milliseconds (default 30000, minimum 1, maximum 600000).
-- **`winedbg_stop`**: Stop the active `winedbg` session.
+  Takes an optional `timeout` in milliseconds (default 30000, minimum 1, maximum 600000). The command is at most 4096 characters and carries no line break or NUL, for the reason under command framing below.
+- **`winedbg_stop`**: Stop the active `winedbg` session. A start that follows a stop waits for the stopped debugger to be gone, so alternating the two cannot leave one detached process group, each holding a debuggee, per cycle.
+
+### Audit log
+
+Every tool call is recorded on stderr, which is the operator's log and not the
+reply stream, since the program under debug writes to that stream and could
+otherwise forge a record of what it did. A start logs its arguments, a command
+logs the command, its timeout and the size of its reply, a stop logs that it
+happened, and a failure logs the tool and the message. Control characters are
+stripped from the recorded text and it is truncated, so a command cannot forge
+log records or flood the log.
 
 ### Command framing
 
@@ -113,12 +123,16 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 marker in the stream is the `Wine-dbg>` prompt. Two consequences are visible
 through the tools:
 
-- One command per `winedbg_execute` call. A command carrying `\n` or `\r` is
-  rejected, because each draws its own prompt and puts every later reply
-  one command behind. Vertical tab, form feed, NEL (U+0085) and the Unicode line
-  and paragraph separators (U+2028, U+2029) are not rejected and are written to
-  the debugger as given, so whether one command stays one line depends on how
-  `winedbg`'s own reader splits its input.
+- One command per `winedbg_execute` call. A command carrying a line terminator is
+  rejected, because every one of them draws its own prompt and puts every later reply
+  one command behind. The rejected set is `\n`, `\r`, vertical tab, form feed, NEL
+  (U+0085), the Unicode line and paragraph separators (U+2028, U+2029), and NUL. A
+  stream reader splits on `\n`, `\r` and vertical tab, and readers disagree on the
+  rest, so a command is one line only if it is one line under every one of them.
+  NUL is not a line break, but it truncates the line for most C readers, which
+  desynchronises the reply stream the same way a second line would. The check
+  runs both at the tool-argument boundary and in the session, so the rule holds
+  for a caller that reaches the session directly.
 - After a command times out, further commands are refused until the debugger
   prints its prompt again. A debugger that has not returned to its prompt is not
   reading commands, and whatever it prints next belongs to the command that timed
@@ -216,6 +230,10 @@ produced, so the text names the state to fix:
 | `Another command is already in progress: ...` | One command per call, and the previous one has not answered yet. The message names that command and tells the caller to wait for its reply |
 | `Configuration error: ...` on stderr at startup | An environment value the server cannot use, named in the message. The server exits with status 1 instead of starting on defaults |
 | `Timeout waiting for <binary> to print its first prompt (Nms)` | No prompt within `WINEDBG_MCP_READY_TIMEOUT_MS`; the child is killed. Raise the variable for a cold wineprefix |
+| `winedbg stopped before it was ready`, `winedbg was not started: a newer winedbg_start call replaced this one` | A start that was waiting for the previous debugger to be gone was cancelled, by `winedbg_stop` or by a newer start. Start again |
+| `command must be a single line: ...` | The command carried a line break or a NUL. One command per call, one line per command |
+| `args[1] contains a NUL byte, which no argument can carry` | An argv entry carried a NUL, which the C runtime cuts at. It names the index so the offending argument can be found |
+| `args must have at most 64 entries`, `args entries must be at most 4096 characters`, `command must be at most 4096 characters` | An argument past its bound. Shorten it, or split the work across calls |
 
 ## License
 

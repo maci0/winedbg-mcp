@@ -44,6 +44,20 @@ async function startedSession(): Promise<WinedbgSession> {
   return s;
 }
 
+/** Signal 0 throws once the pid is reaped, which can lag the close event. */
+async function waitForExit(pid: number, budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await Bun.sleep(20);
+  }
+  return false;
+}
+
 afterEach(() => {
   session?.stop();
   session = null;
@@ -163,11 +177,14 @@ describe("executeCommand", () => {
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
 
-  test("rejects every line terminator a stream reader may split on", async () => {
+  test("rejects every line terminator a stream reader may split on, and NUL", async () => {
     const s = await startedSession();
-    // LF, CR, VT, FF, NEL, and the Unicode line and paragraph separators: the
-    // documented set, so the check cannot be narrowed to \r\n by accident.
-    const terminators = ["\n", "\r", "\v", "\f", "\u0085", "\u2028", "\u2029"];
+    // LF, CR, VT, FF, NEL, the Unicode line and paragraph separators, and NUL:
+    // the documented set, so the check cannot be narrowed to \r\n by accident.
+    // A stream reader splits on VT, a text decoder that honours the Unicode line
+    // breaks on NEL, U+2028 and U+2029, and NUL truncates the line for a C
+    // reader. Each desynchronises the reply stream the same way a second line.
+    const terminators = ["\n", "\r", "\v", "\f", "\u0085", "\u2028", "\u2029", "\u0000"];
     for (const terminator of terminators) {
       await expect(s.executeCommand(`bt${terminator}cont`)).rejects.toThrow(/single line/);
     }
@@ -291,6 +308,21 @@ describe("stop", () => {
     const s = await startedSession();
     s.stop();
     await s.start([FAKE]);
+    expect(await s.executeCommand("bt")).toBe("ran: bt");
+  });
+
+  test("waits for the stopped debugger to be gone before starting another", async () => {
+    const s = newSession();
+    // The debuggee shares the debugger's process group, so it is what a client
+    // alternating start and stop would leave behind, one group per cycle.
+    await s.start([FAKE, "grandchild"]);
+    const first = Number((await s.executeCommand("pid")).replace("ran: ", ""));
+    expect(first).toBeGreaterThan(0);
+    s.stop();
+    await s.start([FAKE]);
+    // The reap is the runtime's, so a signal 0 can still find a zombie for a
+    // moment after the close the start waited for.
+    expect(await waitForExit(first, KILL_WAIT_MS)).toBe(true);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
 });

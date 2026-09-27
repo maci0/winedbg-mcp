@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
 import { parseCliArgs, UsageError } from "./cli.js";
+import { DEFAULT_COMMAND_TIMEOUT_MS } from "./constants.js";
 import { WinedbgSession } from "./session.js";
 import { TOOLS, callTool } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
@@ -59,8 +60,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools: TOOLS };
 });
 
+// A tool call is a debugger command carrying the authority of the account the
+// server runs as, and the reply stream is written by the program under debug, so
+// the operator's log is the only record of what actually ran. Control characters
+// are stripped so a command cannot forge log records, and the text is truncated
+// so a call cannot flood the log.
+const AUDIT_LOG_MAX_CHARS = 200;
+const LOG_CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
+
+function audit(event: string, detail: string) {
+  const text = detail.replace(LOG_CONTROL_CHARS, " ").slice(0, AUDIT_LOG_MAX_CHARS);
+  console.error(`[winedbg-mcp] ${event}${text ? ` ${text}` : ""}`);
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  return callTool(session, request.params.name, request.params.arguments);
+  const { name, arguments: args } = request.params;
+  const result = await callTool(session, name, args);
+  const text = result.content[0]?.text ?? "";
+  // callTool reports a tool failure as an error result rather than by throwing,
+  // so the log reads the outcome back off the result.
+  if (result.isError) {
+    audit("error", `${name}: ${text.replace(/^Error: /, "")}`);
+  } else if (name === "winedbg_start") {
+    audit("start", JSON.stringify(args?.["args"] ?? []));
+  } else if (name === "winedbg_execute") {
+    const timeout = args?.["timeout"] ?? DEFAULT_COMMAND_TIMEOUT_MS;
+    audit("execute", `${JSON.stringify(args?.["command"])} timeoutMs=${timeout} replyChars=${text.length}`);
+  } else {
+    audit("stop", "");
+  }
+  return result;
 });
 
 // winedbg is a child of this process, so nothing else reaps it when the client

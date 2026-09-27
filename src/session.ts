@@ -14,9 +14,19 @@ const MAX_BUFFER_CHARS = 1024 * 1024;
 const BUFFER_RETAIN_CHARS = Math.floor((MAX_BUFFER_CHARS * 3) / 4);
 // SIGTERM asks; a debugger stopped inside a trap handler may not answer.
 const KILL_GRACE_MS = 2000;
-// LF, CR, vertical tab, form feed, NEL, and the Unicode line and paragraph
-// separators, which is the union of what a stream reader may split a reply on.
-const LINE_TERMINATOR = /[\r\n\u000B\u000C\u0085\u2028\u2029]/;
+// A start waits this long for a debugger a previous stop signalled to be gone
+// before spawning its own, so a client alternating start and stop cannot leave a
+// detached process group per cycle. It exceeds the grace by the time a SIGKILL
+// needs to land and the close event to arrive; past it the start proceeds, since
+// an unresponsive child must not wedge the tool.
+const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
+// The debugger answers one line with one prompt, so a command is one line only
+// if it is one line under every reader: a stream reader splits on \n, \r and
+// vertical tab, and a text decoder that honours the Unicode line breaks splits
+// on NEL (U+0085), U+2028 and U+2029 too. NUL is not a line break but truncates
+// the line for most C readers, leaving the reply stream one prompt out of step
+// the same way a second line would.
+export const LINE_BREAKS = /[\n\r\v\f\0\u0085\u2028\u2029]/;
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
   // A signalled child has no exit code, and reporting the absent one reads as
@@ -55,6 +65,15 @@ export class WinedbgSession {
   // send while it is.
   private awaitingAbandonedPrompt: boolean = false;
   private droppedChars: number = 0;
+  // Debuggers a stop or a failed start signalled, still waiting to be reaped.
+  private terminating: Set<DebuggerChild> = new Set();
+  // Bumped by every start and by every stop. A launch waiting to spawn reads it
+  // afterwards, so a stop during that wait cancels the start rather than leaving
+  // it to spawn a debugger nobody is waiting on.
+  private launchId: number = 0;
+  // Distinguishes a launch cancelled by stop() from one replaced by a newer
+  // start, so each reports the state the caller has to act on.
+  private stopRequested: boolean = false;
 
   constructor(
     private readonly binary: string = DEFAULT_BINARY,
@@ -72,7 +91,20 @@ export class WinedbgSession {
     if (this.process) {
       return Promise.reject(new Error("winedbg is already running. Please stop it first."));
     }
+    const id = ++this.launchId;
+    this.stopRequested = false;
+    return this.launch(args, id);
+  }
 
+  private async launch(args: string[], id: number): Promise<void> {
+    await this.awaitTerminations();
+    if (id !== this.launchId) {
+      throw new Error(
+        this.stopRequested
+          ? "winedbg stopped before it was ready"
+          : "winedbg was not started: a newer winedbg_start call replaced this one"
+      );
+    }
     // A previous session can die leaving a prompt in the buffer; without this
     // reset the next start would report ready before the new child says anything.
     this.clearBuffer();
@@ -204,6 +236,35 @@ export class WinedbgSession {
     this.readyTimer = null;
   }
 
+  /**
+   * Wait for the debuggers an earlier stop signalled to be gone. Each one holds
+   * a detached process group that outlives the session that made it, and a
+   * client alternating start and stop would otherwise leave one per cycle. The
+   * wait is bounded: a child that outlives SIGKILL must not wedge the tool, and
+   * the next start proceeds rather than waiting on it.
+   */
+  private async awaitTerminations() {
+    while (this.terminating.size > 0) {
+      const children = [...this.terminating];
+      const closed = Promise.all(
+        children.map(
+          (child) =>
+            new Promise<void>((resolve) => {
+              child.onClose(() => resolve());
+            })
+        )
+      );
+      let timer: NodeJS.Timeout | undefined;
+      const expired = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, TERMINATION_WAIT_MS);
+        timer.unref();
+      });
+      await Promise.race([closed, expired]);
+      if (timer) clearTimeout(timer);
+      if (this.terminating.size >= children.length) return;
+    }
+  }
+
   private releaseCurrent() {
     this.currentPromise = null;
     this.currentCommand = null;
@@ -226,11 +287,17 @@ export class WinedbgSession {
    * debug running with no debugger and no owner.
    */
   private terminate(child: DebuggerChild) {
+    // Tracked until the close that ends it, since the next start waits for it
+    // rather than racing it into a second detached process group.
+    this.terminating.add(child);
     child.killTree("SIGTERM");
     // A debugger stopped inside a trap handler may not answer SIGTERM.
     const grace = this.runtime.clock.setTimeout(() => child.killTree("SIGKILL"), KILL_GRACE_MS);
     grace.unref();
-    child.onClose(() => grace.cancel());
+    child.onClose(() => {
+      this.terminating.delete(child);
+      grace.cancel();
+    });
   }
 
   /** Bound the buffer, keeping the tail: the prompt that ends a reply is there. */
@@ -314,10 +381,9 @@ export class WinedbgSession {
     }
     // Each line is a command and answers with its own prompt, so a multi-line
     // string would leave the reply stream one or more prompts out of step. The
-    // set is the union of what a stream reader may split on: the C0 controls,
-    // NEL, and the Unicode separators, so a command that is one line to this
-    // server is one line to the next reader of the stream too.
-    if (LINE_TERMINATOR.test(command)) {
+    // set is the union of what a stream reader may split on, and the debugger is
+    // not the only reader: the reply framing is a prompt count, not a byte count.
+    if (LINE_BREAKS.test(command)) {
       throw new Error("Command must be a single line. Send one winedbg command per call.");
     }
 
@@ -371,6 +437,10 @@ export class WinedbgSession {
    * child to exit; a no-op when no session is running.
    */
   stop() {
+    // A start still waiting to spawn has nothing to signal, so it is cancelled
+    // here rather than left to come up after the caller stopped it.
+    this.launchId++;
+    this.stopRequested = true;
     const child = this.process;
     if (!child) return;
 

@@ -3,7 +3,14 @@
 
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/constants.js";
-import { optionalTimeout, requireString, requireStringArray } from "../src/validate.js";
+import {
+  MAX_ARG_CHARS,
+  MAX_COMMAND_CHARS,
+  MAX_START_ARGS,
+  optionalTimeout,
+  requireString,
+  requireStringArray,
+} from "../src/validate.js";
 
 describe("requireStringArray", () => {
   test("defaults to empty when the field is absent", () => {
@@ -28,6 +35,14 @@ describe("requireStringArray", () => {
     // which names neither the argument nor where it came from.
     expect(() => requireStringArray(["app.exe", "a\0b"], "args")).toThrow(/args\[1\].*NUL/);
   });
+
+  test("bounds the number of entries and the length of each", () => {
+    expect(requireStringArray(new Array(MAX_START_ARGS).fill("a"), "args").length).toBe(MAX_START_ARGS);
+    expect(() => requireStringArray(new Array(MAX_START_ARGS + 1).fill("a"), "args")).toThrow(
+      /at most 64 entries/
+    );
+    expect(() => requireStringArray(["a".repeat(MAX_ARG_CHARS + 1)], "args")).toThrow(/at most 4096 characters/);
+  });
 });
 
 describe("requireString", () => {
@@ -45,6 +60,23 @@ describe("requireString", () => {
 
   test("rejects a non-string command", () => {
     expect(() => requireString({ cmd: "bt" }, "command")).toThrow(/non-empty string/);
+  });
+
+  test("rejects a line break every stream reader agrees on", () => {
+    // Each of these draws a prompt in some reader, which leaves every later
+    // reply one command behind.
+    for (const command of ["bt\ncont", "bt\rcont", "bt\vcont", "bt\fcont", "bt\u0085cont", "bt\u2028cont", "bt\u2029cont"]) {
+      expect(() => requireString(command, "command")).toThrow(/single line/);
+    }
+  });
+
+  test("rejects NUL, which truncates the line for a C reader", () => {
+    expect(() => requireString("bt\u0000cont", "command")).toThrow(/single line/);
+  });
+
+  test("bounds the command length", () => {
+    expect(requireString("a".repeat(MAX_COMMAND_CHARS), "command")).toHaveLength(MAX_COMMAND_CHARS);
+    expect(() => requireString("a".repeat(MAX_COMMAND_CHARS + 1), "command")).toThrow(/at most 4096 characters/);
   });
 });
 

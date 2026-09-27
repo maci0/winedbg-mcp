@@ -1,14 +1,27 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
+import { LINE_BREAKS } from "./session.js";
 
 // Tool arguments arrive as untyped JSON and the SDK does not enforce the
 // inputSchema it advertises, so these are the trust boundary for everything
 // behind them, including the argv handed to spawn.
 
+// No debugger command is anywhere near this long, and the value is copied into
+// an argv entry and into a pipe write, so an unbounded one is a caller's memory
+// and the child's command line, for no debugging value.
+export const MAX_ARG_CHARS = 4096;
+export const MAX_COMMAND_CHARS = 4096;
+// winedbg takes a program path and a handful of switches. An array this long is
+// a caller filling the process table, not a debugging session.
+export const MAX_START_ARGS = 64;
+
 export function requireStringArray(value: unknown, field: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
     throw new McpError(ErrorCode.InvalidParams, `${field} must be an array of strings`);
+  }
+  if (value.length > MAX_START_ARGS) {
+    throw new McpError(ErrorCode.InvalidParams, `${field} must have at most ${MAX_START_ARGS} entries`);
   }
   // Narrowed item by item rather than asserted: Array.isArray only proves the
   // array, not its elements, and this list goes straight to spawn.
@@ -16,6 +29,9 @@ export function requireStringArray(value: unknown, field: string): string[] {
   for (const [index, item] of value.entries()) {
     if (typeof item !== "string") {
       throw new McpError(ErrorCode.InvalidParams, `${field} must be an array of strings`);
+    }
+    if (item.length > MAX_ARG_CHARS) {
+      throw new McpError(ErrorCode.InvalidParams, `${field} entries must be at most ${MAX_ARG_CHARS} characters`);
     }
     // A NUL cannot reach execve, so spawn() rejects the whole call with
     // ERR_INVALID_ARG_VALUE naming neither the argument nor its index.
@@ -33,6 +49,15 @@ export function requireStringArray(value: unknown, field: string): string[] {
 export function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) {
     throw new McpError(ErrorCode.InvalidParams, `${field} must be a non-empty string`);
+  }
+  if (value.length > MAX_COMMAND_CHARS) {
+    throw new McpError(ErrorCode.InvalidParams, `${field} must be at most ${MAX_COMMAND_CHARS} characters`);
+  }
+  if (LINE_BREAKS.test(value)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `${field} must be a single line: no line break (\\n, \\r, \\v, \\f, U+0085, U+2028, U+2029) and no NUL`
+    );
   }
   return value;
 }
