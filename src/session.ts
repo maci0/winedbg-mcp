@@ -21,6 +21,12 @@ const KILL_GRACE_MS = 2000;
 // needs to land and the close event to arrive; past it the start proceeds, since
 // an unresponsive child must not wedge the tool.
 const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
+// A signalled process group is polled rather than waited on, since nothing
+// reports the end of a member the session never spawned. The poll is short
+// because every member was signalled when the debugger was: the group is only
+// still there while one of them is winding down.
+const GROUP_POLL_INTERVAL_MS = 50;
+const GROUP_EXIT_POLLS = KILL_GRACE_MS / GROUP_POLL_INTERVAL_MS;
 // The debugger answers one line with one prompt, so a command is one line only
 // if it is one line under every reader: a stream reader splits on \n, \r and
 // vertical tab, and a text decoder that honours the Unicode line breaks splits
@@ -291,9 +297,12 @@ export class WinedbgSession {
         const message =
           child.pid === undefined
             ? `Failed to run ${this.binary}${args.length > 0 ? ` with args ${JSON.stringify(args)}` : ""}: ${error.message}. Check ${BINARY_VAR} and that the executable is on PATH.`
-            : error.message;
+            : this.currentCommand === null
+              ? error.message
+              : `winedbg failed while running ${JSON.stringify(this.currentCommand)}: ${error.message}`;
         this.log.error("winedbg process error", {
           pid: child.pid ?? null,
+          command: this.currentCommand,
           error: error.message,
         });
         fail(new Error(message));
@@ -325,7 +334,9 @@ export class WinedbgSession {
    * a detached process group that outlives the session that made it, and a
    * client alternating start and stop would otherwise leave one per cycle. The
    * wait is bounded: a child that outlives SIGKILL must not wedge the tool, and
-   * the next start proceeds rather than waiting on it.
+   * the next start proceeds rather than waiting on it. The bound is a delay on
+   * the injected clock, like every other timeout here, so a run under a virtual
+   * clock is bounded by the same clock it advances.
    */
   private async awaitTerminations() {
     while (this.terminating.size > 0) {
@@ -338,13 +349,15 @@ export class WinedbgSession {
             }),
         ),
       );
-      let timer: NodeJS.Timeout | undefined;
+      // A box, not a local: the assignment happens inside the executor, which
+      // the control flow analysis does not follow.
+      const bound: { timer: Timer | null } = { timer: null };
       const expired = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, TERMINATION_WAIT_MS);
-        timer.unref();
+        bound.timer = this.runtime.clock.setTimeout(resolve, TERMINATION_WAIT_MS);
+        bound.timer.unref();
       });
       await Promise.race([closed, expired]);
-      if (timer) clearTimeout(timer);
+      bound.timer?.cancel();
       if (this.terminating.size >= children.length) {
         // The wait expired with nothing reaped. An entry only exists to hold the
         // next start off, and a child that outlived SIGKILL is not going to
@@ -353,6 +366,33 @@ export class WinedbgSession {
         for (const child of children) this.terminating.delete(child);
         return;
       }
+      // The debugger's close says nothing about the debuggee it started. Both
+      // were signalled in the same instant, but each ends on its own schedule,
+      // and shutdown() promises the caller that neither outlives it.
+      await Promise.all(children.map((child) => this.awaitGroupExit(child)));
+    }
+  }
+
+  /**
+   * Wait for the process group a signalled debugger led to be gone. Bounded by a
+   * count of polls rather than by a reading of the clock, so it costs the same on
+   * every clock this session is given.
+   */
+  private async awaitGroupExit(child: DebuggerChild): Promise<void> {
+    const pid = child.pid;
+    if (pid === undefined) return;
+    for (let poll = GROUP_EXIT_POLLS; poll > 0; poll--) {
+      try {
+        // Signal 0 reaches no process and reports whether the group is still
+        // there. ESRCH is the answer that ends the wait.
+        process.kill(-pid, 0);
+      } catch {
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        const timer = this.runtime.clock.setTimeout(resolve, GROUP_POLL_INTERVAL_MS);
+        timer.unref();
+      });
     }
   }
 

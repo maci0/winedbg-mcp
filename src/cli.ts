@@ -30,7 +30,7 @@ Example MCP client configuration:
 
 Exit codes:
   0  Clean shutdown on SIGINT, SIGTERM, or end of stdin. winedbg and the
-     debuggee it started are waited for, up to 4s, so neither is left running
+     debuggee it started are waited for, up to 6s, so neither is left running
   1  A configuration value the server cannot use, or a failed start
   2  An unknown or invalid command-line argument
 `;

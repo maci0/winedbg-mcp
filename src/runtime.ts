@@ -72,9 +72,14 @@ class NodeDebuggerChild implements DebuggerChild {
   constructor(private readonly child: ChildProcess) {
     // A command written to a pipe the debugger has already closed comes back as
     // an EPIPE 'error' on the stream, and an unhandled one takes this process
-    // down with it. The session already reports the failure to whoever is
-    // waiting on a command, so the stream's own error carries nothing new.
-    child.stdin?.on("error", () => {});
+    // down with it. Handling it by dropping it left the command waiting out its
+    // full timeout and reported as a timeout, with the cause that ended the pipe
+    // discarded, so it goes to the session like every other process failure.
+    // The name is prefixed because a bare "write EPIPE" names neither the pipe
+    // nor the command it belongs to.
+    child.stdin?.on("error", (error) => {
+      this.emitError(new Error(`winedbg command pipe: ${error.message}`, { cause: error }));
+    });
 
     this.stdin = child.stdin;
     for (const stream of [child.stdout, child.stderr]) {
@@ -86,7 +91,7 @@ class NodeDebuggerChild implements DebuggerChild {
       // them. The session settles whatever it is waiting on with the reason,
       // which is the same path a process 'error' takes.
       stream.on("error", (error) => {
-        for (const listener of this.errorListeners) listener(error);
+        this.emitError(new Error(`winedbg output pipe: ${error.message}`, { cause: error }));
       });
       // A read boundary is a byte boundary, not a character one, and where it
       // falls is the pipe's business: a debuggee writing a character at a time
@@ -113,12 +118,17 @@ class NodeDebuggerChild implements DebuggerChild {
       for (const listener of this.closeListeners) listener(code, signal);
     });
     child.on("error", (error) => {
-      for (const listener of this.errorListeners) listener(error);
+      this.emitError(error);
     });
   }
 
   get pid(): number | undefined {
     return this.child.pid;
+  }
+
+  /** One error channel for the process and all three of its pipes. */
+  private emitError(error: Error): void {
+    for (const listener of this.errorListeners) listener(error);
   }
 
   onData(listener: (chunk: string) => void): void {

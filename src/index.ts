@@ -25,9 +25,15 @@ try {
     process.exit(0);
   }
 } catch (error) {
-  if (!(error instanceof UsageError)) throw error;
-  process.stderr.write(`winedbg-mcp: ${error.message}\nTry 'winedbg-mcp --help' for the accepted arguments.\n`);
-  process.exit(2);
+  if (error instanceof UsageError) {
+    process.stderr.write(`winedbg-mcp: ${error.message}\nTry 'winedbg-mcp --help' for the accepted arguments.\n`);
+    process.exit(2);
+  }
+  // --version reads the manifest this process was installed from, so a failure
+  // there is a broken install rather than a bad argument. Reported as one, with
+  // the stack it would otherwise print left out.
+  process.stderr.write(`winedbg-mcp: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
 }
 
 // Read the environment before anything else: a bad value stops the server here,
@@ -114,8 +120,17 @@ function shutdown(reason: string) {
   // strength of the signal alone would take that escalation with it and leave the
   // debugger, and the debuggee it launched, running with no owner. shutdown()
   // waits for them, and a second signal arriving during that wait joins the same
-  // one rather than signalling anything twice.
-  void session.shutdown().finally(() => process.exit(0));
+  // one rather than signalling anything twice. The rejection is reported rather
+  // than left to an unhandled one, which would print over a debugger still
+  // running with the exit code node picked for it.
+  void session
+    .shutdown()
+    .catch((error: unknown) => {
+      log.error("shutdown did not finish cleanly", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    })
+    .finally(() => process.exit(0));
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

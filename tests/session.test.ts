@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { BINARY_VAR } from "../src/config.js";
 import { DEFAULT_READY_TIMEOUT_MS } from "../src/constants.js";
 import { createLogger } from "../src/logger.js";
+import { type DebuggerChild, nodeRuntime } from "../src/runtime.js";
 import { WinedbgSession } from "../src/session.js";
 
 // fileURLToPath, not .pathname: a file: URL is percent-encoded, and on Windows
@@ -92,6 +93,48 @@ afterEach(() => {
   session?.stop();
   session = null;
 });
+
+/**
+ * A debugger in memory, driven by the test rather than by a child process. It
+ * exists for the pipe error path: whether a given runtime's child_process
+ * raises EPIPE for a real child is that runtime's business, and a test that
+ * depended on it would say nothing on the one where it does not.
+ */
+class PipeErrorDebugger implements DebuggerChild {
+  readonly pid = 4242;
+  readonly stdin = { write: () => {} };
+  private readonly dataListeners: ((chunk: string) => void)[] = [];
+  private readonly errorListeners: ((error: Error) => void)[] = [];
+  private readonly closeListeners: ((code: number | null, signal: NodeJS.Signals | null) => void)[] = [];
+
+  onData(listener: (chunk: string) => void): void {
+    this.dataListeners.push(listener);
+  }
+
+  onClose(listener: (code: number | null, signal: NodeJS.Signals | null) => void): void {
+    this.closeListeners.push(listener);
+  }
+
+  onError(listener: (error: Error) => void): void {
+    this.errorListeners.push(listener);
+  }
+
+  killTree(): void {}
+
+  closePipes(): void {}
+
+  /** The first prompt, which is what a start waits for. On a later turn, as a real child. */
+  printPrompt(): void {
+    setTimeout(() => {
+      for (const listener of this.dataListeners) listener("Wine-dbg>");
+    }, 0);
+  }
+
+  /** What a write to a pipe the debugger stopped reading arrives as. */
+  raisePipeError(): void {
+    for (const listener of this.errorListeners) listener(new Error("winedbg command pipe: write EPIPE"));
+  }
+}
 
 describe("start", () => {
   test("resolves once the debugger prints its prompt", async () => {
@@ -250,8 +293,11 @@ describe("executeCommand", () => {
     const s = await startedSession();
     await s.executeCommand("close-stdin");
     // The command never reaches a debugger, and a write to the pipe it stopped
-    // reading must not take this process down.
-    await expect(s.executeCommand("bt", HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
+    // reading must not take this process down. Which way the write fails is the
+    // test runtime's business, so only the outcome both ways agree on is
+    // asserted: the command is refused and the session outlives it. The reason
+    // the pipe error carries is pinned below, where it can be raised on demand.
+    await expect(s.executeCommand("bt", HANG_TIMEOUT_MS)).rejects.toThrow();
     expect(s.isRunning()).toBe(true);
   });
 
@@ -290,6 +336,29 @@ describe("executeCommand", () => {
     const out = await s.executeCommand("utf8:naïve café \u{1F600} 日本語");
     expect(out).toBe("utf8 reply: naïve café \u{1F600} 日本語");
     expect(out).not.toContain("�");
+  });
+
+  test("reports the command a broken pipe failed, not a timeout", async () => {
+    // A pipe error raised on demand, so the reason is pinned where it does not
+    // depend on the test runtime raising EPIPE for a real child of its own.
+    const pipe = new PipeErrorDebugger();
+    const s = new WinedbgSession("winedbg", READY_TIMEOUT_MS, {
+      clock: nodeRuntime().clock,
+      spawn: () => pipe,
+    });
+    session = s;
+    const started = s.start();
+    pipe.printPrompt();
+    await started;
+    const pending = s.executeCommand("bt", IN_FLIGHT_TIMEOUT_MS);
+    pipe.raisePipeError();
+    // The debugger is still there, only its command pipe is broken, so the
+    // refusal names both the command and the pipe. A timeout here would report a
+    // debugger that had gone away as one that had not answered.
+    await expect(pending).rejects.toThrow(
+      'winedbg failed while running "bt": winedbg command pipe: write EPIPE',
+    );
+    expect(s.isRunning()).toBe(true);
   });
 
   test("cuts the overflow on a character boundary, not inside a surrogate pair", async () => {
