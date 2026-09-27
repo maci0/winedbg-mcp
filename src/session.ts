@@ -36,7 +36,6 @@ export class WinedbgSession {
   // of it per chunk costs a pass over a megabyte for every line printed.
   private scannedChars: number = 0;
   private isReady: boolean = false;
-  private initPromise: Promise<void> | null = null;
   // Rejects the in-flight start(). Only the latest start is stored, because
   // start() refuses to run beside another one.
   private initReject: ((err: Error) => void) | null = null;
@@ -79,7 +78,7 @@ export class WinedbgSession {
     // waiting on a command, so the stream's own error carries nothing new.
     child.stdin?.on("error", () => {});
 
-    this.initPromise = new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       // Events from an already-replaced child (a kill lands after the next
       // start) must not touch the current session's state.
       const isCurrent = () => this.process === child;
@@ -157,8 +156,6 @@ export class WinedbgSession {
         }
       });
     });
-
-    return this.initPromise;
   }
 
   private clearReadyTimer() {

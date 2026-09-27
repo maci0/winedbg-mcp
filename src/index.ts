@@ -85,6 +85,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools: TOOLS };
 });
 
+function textResult(text: string) {
+  return { content: [{ type: "text" as const, text }] };
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
@@ -93,14 +97,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "winedbg_start": {
         const startArgs = requireStringArray(args?.["args"], "args");
         await session.start(startArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: `winedbg started successfully with args: ${startArgs.join(" ")}`,
-            },
-          ],
-        };
+        return textResult(`winedbg started successfully with args: ${startArgs.join(" ")}`);
       }
 
       case "winedbg_execute": {
@@ -108,26 +105,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const timeout = optionalTimeout(args?.["timeout"]);
 
         const output = await session.executeCommand(command, timeout);
-        return {
-          content: [
-            {
-              type: "text",
-              text: output || "(Command executed successfully, no output)",
-            },
-          ],
-        };
+        return textResult(output || "(Command executed successfully, no output)");
       }
 
       case "winedbg_stop": {
         session.stop();
-        return {
-          content: [
-            {
-              type: "text",
-              text: "winedbg session stopped.",
-            },
-          ],
-        };
+        return textResult("winedbg session stopped.");
       }
 
       default:
@@ -138,15 +121,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // result marked isError would report it as a successful call.
     if (error instanceof McpError && error.code === ErrorCode.MethodNotFound) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error: ${message}`,
-        },
-      ],
-      isError: true,
-    };
+    return { ...textResult(`Error: ${message}`), isError: true };
   }
 });
 
@@ -154,10 +129,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // hangs up and this process goes away.
 process.on("exit", () => session.stop());
 
-let shuttingDown = false;
 function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
   session.stop();
   process.exit(0);
 }

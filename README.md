@@ -4,11 +4,12 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 
 ## Status
 
-The server is implemented and tested. `src/` holds the session, the environment
-parsing and the tool-argument validation; `tests/` drives them against a stand-in
-that speaks the same `Wine-dbg>` prompt protocol, so the suite needs no Wine. No
-test here has been run against a real `winedbg`: the debugger is the one thing
-the fixtures replace.
+The server is implemented and tested. `src/` holds the MCP entry point, the
+winedbg session state machine, the environment parsing and the tool-argument
+validation; `tests/` covers all of those. The session tests drive
+`WinedbgSession` against a stand-in that speaks the same `Wine-dbg>` prompt
+protocol, so the suite needs no Wine. No test here has been run against a real
+`winedbg`: the debugger is the one thing the fixtures replace.
 
 ## Prerequisites
 
@@ -104,13 +105,12 @@ through the tools:
   out. If it never comes back (a `cont` into a program that does not stop), call
   `winedbg_stop` and start again.
 
-A single reply is buffered up to 1M code points. The cap counts code points of
-decoded text, not bytes and not UTF-16 code units, so it means the same thing
-whatever the target prints: the child's output is decoded as UTF-8, a byte sequence
-that is not valid UTF-8 becomes U+FFFD rather than being passed through, and one CJK
-character or one astral emoji costs one unit however many bytes it took. Past the
-cap the oldest output is dropped at code point boundaries, so a dropped block never
-starts mid-sequence, and the reply reports how many code points went missing.
+A single reply is buffered up to 1M characters. The cap counts UTF-16 code
+units of the decoded text, not bytes: the child's output is decoded as UTF-8, a
+byte sequence that is not valid UTF-8 becomes U+FFFD rather than being passed
+through, and an astral character costs two units however many bytes it took.
+Past the cap the oldest output is dropped at whole character boundaries, and the
+reply reports how many characters went missing.
 
 ## Usage Example
 
@@ -124,7 +124,7 @@ starts mid-sequence, and the reply reports how many code points went missing.
 
 `bun run typecheck` and `bun test` are the gate for this tree. The suite drives
 `WinedbgSession` against `tests/fake-winedbg.js`, a stand-in speaking the same
-`Wine-dbg>` prompt protocol, so it runs without Wine, and it covers the
+`Wine-dbg>` prompt protocol, so it runs without Wine installed, and it covers the
 tool-argument validation and the environment parsing described above:
 
 ```bash
