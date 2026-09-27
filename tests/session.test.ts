@@ -416,7 +416,7 @@ describe("executeCommand", () => {
     const started = s.start();
     pipe.printPrompt();
     await started;
-    const pending = s.executeCommand("bt", IN_FLIGHT_TIMEOUT_MS);
+    const pending = s.executeCommand("bt", NO_REPLY_TIMEOUT_MS);
     pipe.raisePipeError();
     // The debugger is still there, only its command pipe is broken, so the
     // refusal names both the command and the pipe. A timeout here would report a
@@ -789,7 +789,7 @@ describe("the overflow cut", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     fake.emit("Wine-dbg>");
     await started;
-    const answered = s.executeCommand("bt", IN_FLIGHT_TIMEOUT_MS);
+    const answered = s.executeCommand("bt", NO_REPLY_TIMEOUT_MS);
     fake.emit(body);
     fake.emit("Wine-dbg>");
     const out = await answered;

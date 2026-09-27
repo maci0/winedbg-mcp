@@ -61,9 +61,11 @@ function handle(line) {
     // A reply carrying the prompt as literal output, the way a program under
     // debug that prints it would. Two prompts reach the session in one reply,
     // so which one ends it is a decision rather than an accident of where the
-    // last read left the buffer.
-    process.stdout.write("before\nWine-dbg>\nafter\n");
-    process.stdout.write("Wine-dbg>");
+    // last read left the buffer. One write, not two: the pipe only makes the
+    // reply atomic while it stays under PIPE_BUF, and two writes let a loaded
+    // host split them, which hands the session the "after" text as if it were
+    // the next command's reply.
+    process.stdout.write("before\nWine-dbg>\nafter\nWine-dbg>");
     return;
   }
   if (line.startsWith("astral:")) {

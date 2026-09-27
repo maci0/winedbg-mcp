@@ -252,16 +252,17 @@ would otherwise refuse to start on.
 
 ## Tests
 
-`bun run check` is the gate for this tree: Biome, then the two type-check
-passes, then the suite. `bun run typecheck` and `bun test` are the pieces it
-runs, for iterating on one of them at a time. CI runs the build as well, so a
+`bun run check` is the gate for this tree: Biome, then shellcheck over
+`scripts/`, then the two type-check passes, then the suite. `bun run typecheck`
+and `bun test` are the pieces it runs, for iterating on one of them at a time.
+CI runs the build as well, so a
 tree that type-checks but does not emit is red there rather than at release.
 The suite runs against `src/`; the compiled layout gets its own check, run by
 CI after `bun run build`.
 
 ```bash
 bun run check          # what CI runs
-bun run lint           # Biome, formatting and lint rules
+bun run lint           # Biome formatting and lint rules, then shellcheck
 bun run format         # Biome autofix: formatting, imports and every safe rule fix
 bun run typecheck      # tsc on src/, then on src/ + tests/
 bun run build          # tsc, then the executable build/index.js

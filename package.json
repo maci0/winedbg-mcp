@@ -20,7 +20,7 @@
     "start": "bun build/index.js",
     "dev": "bun src/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "lint": "biome check .",
+    "lint": "biome check . && shellcheck scripts/*.sh",
     "format": "biome check --write .",
     "test": "bun test",
     "check": "bun run lint && bun run typecheck && bun test",
