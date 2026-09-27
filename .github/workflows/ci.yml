@@ -28,6 +28,20 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      # `bun run lint` calls shellcheck directly. The Ubuntu runner image ships
+      # it, the macOS image does not, so the same gate passed on one leg of the
+      # matrix and died with exit 127 on the other. Provide it where it is
+      # missing rather than dropping the check or narrowing the matrix.
+      - name: Install shellcheck
+        run: |
+          if command -v shellcheck >/dev/null; then
+            exit 0
+          fi
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install shellcheck
+          else
+            sudo apt-get update && sudo apt-get install -y shellcheck
+          fi
       - run: bun run check
       - run: bun run build
       - run: scripts/verify-artifact.sh
