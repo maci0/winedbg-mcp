@@ -1,16 +1,8 @@
 import { spawn, ChildProcess } from "child_process";
+import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
 
 const PROMPT = "Wine-dbg>";
-export const DEFAULT_BINARY = "winedbg";
-// A cold wineprefix takes longer to answer than a warm one; config.ts lets a
-// deployment raise this without a rebuild.
-export const DEFAULT_READY_TIMEOUT_MS = 10000;
-export const DEFAULT_COMMAND_TIMEOUT_MS = 30000;
-export const MAX_COMMAND_TIMEOUT_MS = 600000;
-// A separate limit from MAX_COMMAND_TIMEOUT_MS even at the same value: the two
-// bound unrelated waits, and raising the command ceiling must not silently
-// raise the first-prompt wait.
-export const MAX_READY_TIMEOUT_MS = 600000;
+
 // A debuggee writing to stdout produces output no prompt ever terminates, so the
 // buffer needs a ceiling that does not depend on the debugger cooperating.
 const MAX_BUFFER_CHARS = 1024 * 1024;

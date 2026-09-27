@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { BINARY_VAR, READY_TIMEOUT_VAR, describeConfig, loadConfig } from "../src/config.js";
-import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/session.js";
+import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/constants.js";
 
 describe("loadConfig", () => {
   test("an empty environment gives the documented defaults", () => {

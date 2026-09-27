@@ -9,7 +9,19 @@ winedbg session state machine, the environment parsing and the tool-argument
 validation; `tests/` covers all of those. The session tests drive
 `WinedbgSession` against a stand-in that speaks the same `Wine-dbg>` prompt
 protocol, so the suite needs no Wine. No test here has been run against a real
-`winedbg`: the debugger is the one thing the fixtures replace.
+`winedbg`: the debugger is the one thing the fixtures replace. See
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+
+Source layout, one concern per module:
+
+| Path | Concern |
+| --- | --- |
+| `src/index.ts` | entrypoint: config load, transport, process lifecycle |
+| `src/tools.ts` | the MCP tool list and the call dispatch |
+| `src/validate.ts` | validation of untyped tool arguments |
+| `src/session.ts` | the winedbg child process and its prompt protocol |
+| `src/config.ts` | reading and validating the environment |
+| `src/constants.ts` | defaults and limits shared across the above |
 
 ## Prerequisites
 

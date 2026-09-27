@@ -2,7 +2,7 @@
 // every one of them is untrusted input on the way to spawn and to the debugger.
 
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/session.js";
+import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/constants.js";
 import { optionalTimeout, requireString, requireStringArray } from "../src/validate.js";
 
 describe("requireStringArray", () => {

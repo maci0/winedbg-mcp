@@ -10,7 +10,8 @@
 // kills it in afterEach, so nothing is shared between tests.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { DEFAULT_READY_TIMEOUT_MS, WinedbgSession } from "../src/session.js";
+import { DEFAULT_READY_TIMEOUT_MS } from "../src/constants.js";
+import { WinedbgSession } from "../src/session.js";
 
 const FAKE = new URL("fake-winedbg.js", import.meta.url).pathname;
 const HANG_TIMEOUT_MS = 200;

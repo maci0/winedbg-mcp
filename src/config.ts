@@ -1,4 +1,4 @@
-import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "./session.js";
+import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "./constants.js";
 
 // The only deployment knobs. An MCP client launches this server with no argv it
 // controls beyond the script path, so env is the one place a deployment can say
