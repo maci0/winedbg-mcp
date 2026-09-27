@@ -21,6 +21,10 @@ const LEVEL_RANK: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, er
  * the varying parts are named fields, so a query filters on a field rather than
  * on a substring of prose.
  */
+export function formatRecord(time: string, level: LogLevel, message: string, fields: LogFields = {}): string {
+  return JSON.stringify({ time, level, message, ...fields });
+}
+
 export function createLogger(
   level: LogLevel,
   write: (line: string) => void,
@@ -28,7 +32,7 @@ export function createLogger(
 ): Logger {
   const emit = (record: LogLevel, message: string, fields?: LogFields) => {
     if (LEVEL_RANK[record] < LEVEL_RANK[level]) return;
-    write(JSON.stringify({ time: now().toISOString(), level: record, message, ...fields }));
+    write(formatRecord(now().toISOString(), record, message, fields));
   };
   return {
     debug: (message, fields) => emit("debug", message, fields),

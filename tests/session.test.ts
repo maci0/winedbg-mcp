@@ -44,6 +44,13 @@ const OVERFLOW_CHARS = 2 * 1024 * 1024;
 // Emoji take two UTF-16 units each, so this is 1.2M units of output against a
 // 1M-unit cap: enough to force the cut, in astral characters rather than ASCII.
 const ASTRAL_CHARS = 600_000;
+// How often to ask whether a signalled process is gone. shutdown() waits for
+// the debugger, not for the debuggee it signalled alongside, and a process
+// answering SIGTERM finishes on its own schedule.
+const REAP_POLL_MS = 20;
+// The bound on that wait, so a debuggee that really did outlive its debugger
+// fails the test rather than hanging it.
+const REAP_TIMEOUT_MS = 5000;
 
 let session: WinedbgSession | null = null;
 
@@ -76,7 +83,7 @@ async function waitForExit(pid: number, budgetMs: number): Promise<boolean> {
     } catch {
       return true;
     }
-    await Bun.sleep(20);
+    await Bun.sleep(REAP_POLL_MS);
   }
   return false;
 }
@@ -484,7 +491,7 @@ describe("shutdown", () => {
     // debugger it owns is gone by the time it resolves. The debuggee is not the
     // session's child, so nothing reaps it and its exit can lag the signal.
     expect(() => process.kill(debuggerPid, 0)).toThrow();
-    expect(await waitForExit(debuggee, KILL_WAIT_MS)).toBe(true);
+    expect(await waitForExit(debuggee, REAP_TIMEOUT_MS)).toBe(true);
     expect(s.isRunning()).toBe(false);
   }, 10000);
 
@@ -499,7 +506,7 @@ describe("shutdown", () => {
     // The second shutdown resolves on the same termination the first waited
     // for, and a reap can lag the close that wait is built on, so the pid going
     // away is polled rather than sampled once.
-    expect(await waitForExit(debuggee, KILL_WAIT_MS)).toBe(true);
+    expect(await waitForExit(debuggee, REAP_TIMEOUT_MS)).toBe(true);
     expect(s.isRunning()).toBe(false);
   });
 

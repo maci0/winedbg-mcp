@@ -50,6 +50,15 @@ function isRefusal(result: ToolResult): boolean {
   return result.isError === true;
 }
 
+// The races below all resolve to one answer and one refusal, so the assertion
+// is on the pair and reading either one must not need a non-null assertion.
+function only<T>(values: T[]): T {
+  expect(values).toHaveLength(1);
+  const [value] = values;
+  if (value === undefined) throw new Error("only(): the length assertion above already failed");
+  return value;
+}
+
 afterEach(() => {
   session?.stop();
   session = null;
@@ -67,9 +76,7 @@ describe("concurrent tool calls", () => {
     ]);
     const outcomes = [first, second];
     expect(outcomes.filter((result) => !isRefusal(result))).toHaveLength(1);
-    const refused = outcomes.find(isRefusal);
-    if (refused === undefined) throw new Error("neither start was refused");
-    expect(textOf(refused)).toMatch(/already running/);
+    expect(textOf(only(outcomes.filter(isRefusal)))).toMatch(/already running/);
     expect(s.isRunning()).toBe(true);
     expect(textOf(await callTool(s, "winedbg_execute", { command: "bt" }))).toBe("ran: bt");
   });

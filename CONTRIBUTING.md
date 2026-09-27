@@ -15,8 +15,10 @@ bun run check        # the gate; it passes on a fresh checkout
 
 Bun is the only tool needed for the gate. Wine is a prerequisite for driving a
 real debugger, not for building or testing: the suite runs against
-`tests/fake-winedbg.js`. Node.js 18 or higher is only needed to run the built
-`build/index.js` with `node` instead of `bun`.
+`tests/fake-winedbg.js`. Node.js 18 or higher is needed only to run the built
+`build/index.js` with `node` instead of `bun`, and for
+`scripts/verify-artifact.sh`, which runs the artifact under both hosts and is
+the one step of CI that needs it.
 
 ## 2. While you edit
 

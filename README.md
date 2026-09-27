@@ -49,7 +49,8 @@ program under debug running. CI runs on Linux only, so macOS is supported by the
 code being POSIX and untested; say so if that changes.
 
 Node.js 18 or higher is only needed if you run the built `build/index.js`
-with `node` instead of `bun`.
+with `node` instead of `bun`, or to run `scripts/verify-artifact.sh`, which
+checks the artifact under both hosts.
 
 ## Installation
 

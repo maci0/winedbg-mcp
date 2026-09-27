@@ -26,6 +26,17 @@ function schemaOf(name: string): Schema {
 }
 
 describe("tool list", () => {
+  // The three schemas are separate literal types, so a name-keyed read of one
+  // of them needs a shape the assertions can talk about: what the tool
+  // advertises, not how it was written. A name with no tool fails here rather
+  // than asserting against undefined.
+  type AdvertisedSchema = { properties: object; required?: readonly string[] };
+  function schemaFor(name: string): AdvertisedSchema {
+    const tool = TOOLS.find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`no tool named ${name}`);
+    return tool.inputSchema;
+  }
+
   test("names the three tools the handler dispatches", () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual(["winedbg_start", "winedbg_execute", "winedbg_stop"]);
   });
@@ -44,15 +55,9 @@ describe("tool list", () => {
   // empty line, which draws a prompt and an empty reply, and the model sees a
   // successful command it never asked for.
   test("marks command as required, and nothing else", () => {
-    // The schemas differ in more than the required list, so the map is read
-    // through a shape both of them fit.
-    const byName = new Map<string, { properties: Record<string, unknown>; required?: readonly string[] }>(
-      TOOLS.map((tool) => [tool.name, tool.inputSchema]),
-    );
-    const required = (name: string) => byName.get(name)?.required;
-    expect(required("winedbg_execute")).toEqual(["command"]);
-    expect(required("winedbg_start")).toBeUndefined();
-    expect(required("winedbg_stop")).toBeUndefined();
+    expect(schemaFor("winedbg_execute").required).toEqual(["command"]);
+    expect(schemaFor("winedbg_start").required).toBeUndefined();
+    expect(schemaFor("winedbg_stop").required).toBeUndefined();
   });
 });
 

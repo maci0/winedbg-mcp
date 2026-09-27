@@ -18,6 +18,13 @@ fail() {
 [ -f build/index.js ] || fail "build/index.js is missing; run 'bun run build' first"
 [ -x build/index.js ] || fail "build/index.js is not executable; the bin entry would fail to launch"
 
+# The artifact is published as a bin that a client may launch under either
+# host, so this checks node too, which makes node a prerequisite here that
+# `bun run check` does not need. Name it rather than letting the first
+# `node -e` fail as a bare "command not found" with no script named.
+command -v node >/dev/null ||
+	fail "node is not on PATH; it is only needed for this check, which runs the artifact under both bun and node"
+
 # Source and map files belong to the repository, not to the artifact.
 leftover=$(find build -type f \( -name '*.ts' -o -name '*.map' \) -print)
 [ -z "$leftover" ] || fail "build/ carries non-artifact files: $leftover"
