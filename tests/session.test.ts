@@ -30,6 +30,9 @@ const HANG_TIMEOUT_MS = 200;
 // wait itself. Loose enough that a loaded host cannot reach it before the test
 // is done, since nothing here should depend on a stopwatch.
 const NO_REPLY_TIMEOUT_MS = 60_000;
+// The bound for a command whose reply the fixture writes itself, so the
+// timeout is never what ends the test that is exercising the reply path.
+const IN_FLIGHT_TIMEOUT_MS = 60_000;
 // Short enough that the test is quick, and far below the default it overrides.
 const READY_TIMEOUT_MS = 200;
 const SLOW_REPLY_MS = 300;
@@ -578,6 +581,31 @@ describe("stop", () => {
     // moment after the close the start waited for.
     expect(await waitForExit(first, KILL_WAIT_MS)).toBe(true);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
+  });
+
+  test("leaves no process behind over repeated start and stop cycles", async () => {
+    const s = newSession();
+    const pids: number[] = [];
+    // Repeated cycles are what a client alternating start and stop accumulates
+    // if either half of that path leaks: a detached process group per cycle, a
+    // debuggee per group, and an entry per group in the set a start waits on.
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await s.start([FAKE, "grandchild"]);
+      pids.push(Number((await s.executeCommand("pid")).replace("ran: ", "")));
+      s.stop();
+      await s.shutdown();
+    }
+    expect(pids).toHaveLength(3);
+    for (const pid of pids) {
+      expect(await waitForExit(pid, REAP_TIMEOUT_MS)).toBe(true);
+    }
+    // Nothing is left tracked, so shutdown has no wait to sit out. A child left
+    // in that set would make this one take the full termination timeout and
+    // then drop the entry, which is a leak the next start would inherit.
+    const settledAt = Date.now();
+    await s.shutdown();
+    expect(Date.now() - settledAt).toBeLessThan(KILL_WAIT_MS);
+    expect(s.isRunning()).toBe(false);
   });
 });
 

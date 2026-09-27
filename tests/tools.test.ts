@@ -221,6 +221,7 @@ describe("callTool", () => {
       }),
       "winedbg_execute",
       { command: "bt", timeout: 0 },
+      DEFAULT_COMMAND_TIMEOUT_MS,
     );
     expect(called).toBe(false);
     expect(result.isError).toBe(true);
