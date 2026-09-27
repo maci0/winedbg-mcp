@@ -136,6 +136,15 @@ describe("executeCommand", () => {
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
 
+  test("rejects every line terminator a stream reader may split on", async () => {
+    const s = await startedSession();
+    const terminators = ["\r", "\n", "\v", "\f", "\u0085", "\u2028", "\u2029"];
+    for (const terminator of terminators) {
+      await expect(s.executeCommand(`bt${terminator}cont`)).rejects.toThrow(/single line/);
+    }
+    expect(await s.executeCommand("bt")).toBe("ran: bt");
+  });
+
   test("refuses a new command while the debugger still owes a prompt", async () => {
     const s = await startedSession();
     await expect(s.executeCommand("hang", HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);

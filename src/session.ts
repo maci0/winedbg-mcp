@@ -12,6 +12,9 @@ const MAX_BUFFER_CHARS = 1024 * 1024;
 const BUFFER_RETAIN_CHARS = Math.floor((MAX_BUFFER_CHARS * 3) / 4);
 // SIGTERM asks; a debugger stopped inside a trap handler may not answer.
 const KILL_GRACE_MS = 2000;
+// LF, CR, vertical tab, form feed, NEL, and the Unicode line and paragraph
+// separators. JavaScript regexes are not multiline here, so each is listed.
+const LINE_TERMINATOR = /[\r\n\u000B\u000C\u0085\u2028\u2029]/;
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
   // A signalled child has no exit code, and reporting the absent one reads as
@@ -19,6 +22,14 @@ function describeExit(code: number | null, signal: NodeJS.Signals | null): strin
   return signal !== null ? `winedbg was killed by ${signal}` : `winedbg exited with code ${code ?? "unknown"}`;
 }
 
+/**
+ * One winedbg process, driven over its pipes.
+ *
+ * winedbg labels nothing in its output: the only marker in the merged
+ * stdout/stderr stream is the prompt it prints after each command, and a
+ * program under debug writes to the same pipes. Every rule below follows from
+ * that, so a reply is what sits between two prompts and nothing else.
+ */
 export class WinedbgSession {
   private process: ChildProcess | null = null;
   private currentPromise: { resolve: (out: string) => void; reject: (err: Error) => void } | null = null;
@@ -48,6 +59,12 @@ export class WinedbgSession {
     private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS
   ) {}
 
+  /**
+   * Spawn the debugger and resolve once it prints its first prompt. `args`
+   * reaches its argv unchanged, so a program to launch or a PID to attach to
+   * both work. Rejects if a session is already running, and kills the child if
+   * the prompt does not arrive within `readyTimeoutMs`.
+   */
   start(args: string[] = []): Promise<void> {
     if (this.process) {
       return Promise.reject(new Error("winedbg is already running. Please stop it first."));
@@ -261,6 +278,15 @@ export class WinedbgSession {
     }
   }
 
+  /**
+   * Send one command and resolve with the text before the next prompt.
+   *
+   * Rejects rather than guessing: no live session, a command already in
+   * flight, a prompt still owed to a command that timed out, a command
+   * carrying a line terminator, and a debugger whose stdin pipe is gone.
+   * `timeoutMs` bounds the wait for the reply, not for the command to take
+   * effect; the command keeps running either way.
+   */
   async executeCommand(command: string, timeoutMs: number = DEFAULT_COMMAND_TIMEOUT_MS): Promise<string> {
     if (!this.process || !this.isReady) {
       throw new Error("winedbg is not running. Please start it first.");
@@ -278,8 +304,11 @@ export class WinedbgSession {
       );
     }
     // Each line is a command and answers with its own prompt, so a multi-line
-    // string would leave the reply stream one or more prompts out of step.
-    if (/[\r\n]/.test(command)) {
+    // string would leave the reply stream one or more prompts out of step. The
+    // set is the union of what a stream reader may split on: the C0 controls,
+    // NEL, and the Unicode separators, so a command that is one line to this
+    // server is one line to the next reader of the stream too.
+    if (LINE_TERMINATOR.test(command)) {
       throw new Error("Command must be a single line. Send one winedbg command per call.");
     }
 
@@ -327,6 +356,11 @@ export class WinedbgSession {
     });
   }
 
+  /**
+   * End the debugger and the debuggee under it, and settle anything waiting:
+   * an in-flight start, a command in flight. Returns without waiting for the
+   * child to exit; a no-op when no session is running.
+   */
   stop() {
     const child = this.process;
     if (!child) return;
@@ -352,6 +386,7 @@ export class WinedbgSession {
     this.terminate(child);
   }
 
+  /** Whether a debugger process is held, ready or not. Not whether it is at its prompt. */
   isRunning(): boolean {
     return this.process !== null;
   }

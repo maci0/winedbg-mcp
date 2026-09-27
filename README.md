@@ -6,11 +6,13 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 
 The server is implemented and tested. `src/` holds the MCP entry point, the
 winedbg session state machine, the environment parsing and the tool-argument
-validation; `tests/` covers all of those. The session tests drive
+validation; `tests/` covers all of those, and CI (`.github/workflows/ci.yml`)
+runs the typecheck and the suite. The session tests drive
 `WinedbgSession` against a stand-in that speaks the same `Wine-dbg>` prompt
 protocol, so the suite needs no Wine. No test here has been run against a real
 `winedbg`: the debugger is the one thing the fixtures replace. See
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), which is still written against
+this README as a specification rather than against the source, and says so.
 
 Source layout, one concern per module:
 
@@ -94,7 +96,7 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 
 ## Tools Available
 
-- **`winedbg_start`**: Start `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works, such as the program to launch (e.g. `{"args": ["myapp.exe"]}`).
+- **`winedbg_start`**: Start `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works, such as the program to launch (e.g. `{"args": ["myapp.exe"]}`). `args` must be an array of strings; a bare string is rejected rather than split into one argument per character.
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
   Takes an optional `timeout` in milliseconds (default 30000, minimum 1, maximum 600000).
 - **`winedbg_stop`**: Stop the active `winedbg` session.
@@ -117,12 +119,15 @@ through the tools:
   out. If it never comes back (a `cont` into a program that does not stop), call
   `winedbg_stop` and start again.
 
-A single reply is buffered up to 1M characters. The cap counts UTF-16 code
-units of the decoded text, not bytes: the child's output is decoded as UTF-8, a
-byte sequence that is not valid UTF-8 becomes U+FFFD rather than being passed
-through, and an astral character costs two units however many bytes it took.
-Past the cap the oldest output is dropped at whole character boundaries, and the
-reply reports how many characters went missing.
+A single reply is buffered up to 1M UTF-16 code units of decoded text, so a
+BMP character costs one unit and an astral one costs two, whatever the target
+prints. The child's output is decoded as UTF-8, and a byte sequence that is not
+valid UTF-8 becomes U+FFFD rather than being passed through. Past the cap the
+oldest output is dropped to keep the last three quarters, and the reply then
+opens with `[N characters of earlier output dropped: buffer limit]`, counting
+in the same code units. Truncation counts code units, so it can cut between the
+two halves of an astral character; a reply cut that way starts with an
+unpaired surrogate for that character.
 
 ## Usage Example
 
@@ -134,18 +139,19 @@ reply reports how many characters went missing.
 
 ## Tests
 
-`bun run typecheck` and `bun test` are the gate for this tree. The suite drives
-`WinedbgSession` against `tests/fake-winedbg.js`, a stand-in speaking the same
-`Wine-dbg>` prompt protocol, so it runs without Wine installed, and it covers the
-tool-argument validation and the environment parsing described above:
+`bun run typecheck` and `bun test` are the gate for this tree.
 
 ```bash
 bun run typecheck
 bun test
 ```
 
-Every session test spawns a real child and drives its stdio, so a failure is a
-real spawn, stream or lifecycle failure rather than a mock disagreeing.
+`tests/session.test.ts` drives `WinedbgSession` against `tests/fake-winedbg.js`,
+a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the suite runs
+without Wine installed. `tests/validate.test.ts` covers the tool-argument
+boundary and `tests/config.test.ts` the environment parsing. Every session test
+spawns a real child and drives its stdio, so a failure is a real spawn, stream
+or lifecycle failure rather than a mock disagreeing.
 
 ## Troubleshooting
 
@@ -158,7 +164,7 @@ produced, so the text names the state to fix:
 | `winedbg is already running. Please stop it first.` | `winedbg_start` was called twice; call `winedbg_stop` first |
 | `Another command is already in progress: ...` | One command per call, and the previous one has not answered yet. The message names that command and tells the caller to wait for its reply |
 | `Configuration error: ...` on stderr at startup | An environment value the server cannot use, named in the message. The server exits with status 1 instead of starting on defaults |
-| `Timeout waiting for winedbg to print its first prompt (Nms)` | No prompt within `WINEDBG_MCP_READY_TIMEOUT_MS`; the child is killed. Raise the variable for a cold wineprefix |
+| `Timeout waiting for <binary> to print its first prompt (Nms)` | No prompt within `WINEDBG_MCP_READY_TIMEOUT_MS`; the child is killed. Raise the variable for a cold wineprefix |
 
 ## License
 
