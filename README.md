@@ -112,6 +112,12 @@ speaks the same `Wine-dbg>` prompt protocol, so it runs without Wine installed, 
 checks the tool-argument validation in `src/validate.ts` and the environment
 parsing in `src/config.ts`.
 
+`tests/fuzz-validate.test.ts` and `tests/fuzz-session-output.test.ts` fuzz the two
+untrusted-input surfaces: the tool arguments arriving as JSON, and the debugger's
+output arriving as bytes. Both run a fixed seed of generated inputs, so a failure
+replays from the same inputs, and both assert contracts rather than exit codes.
+Raise `SEED` in either file for a different run.
+
 CI (`.github/workflows/ci.yml`) runs both on every pull request and on every
 push to `main`.
 
