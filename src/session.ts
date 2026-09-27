@@ -107,10 +107,7 @@ export class WinedbgSession {
     }
     // A previous session can die leaving a prompt in the buffer; without this
     // reset the next start would report ready before the new child says anything.
-    this.clearBuffer();
-    this.isReady = false;
-    this.awaitingAbandonedPrompt = false;
-    this.droppedChars = 0;
+    this.resetState();
 
     let child: DebuggerChild;
     try {
@@ -313,6 +310,14 @@ export class WinedbgSession {
     this.scannedChars = 0;
   }
 
+  /** Drop everything a run leaves behind: buffered output, readiness, owed prompts. */
+  private resetState() {
+    this.isReady = false;
+    this.awaitingAbandonedPrompt = false;
+    this.droppedChars = 0;
+    this.clearBuffer();
+  }
+
   /**
    * Drop consumed or over-long output from the head. The search position moves
    * with the text, and never past the start, so it keeps naming the same
@@ -445,10 +450,7 @@ export class WinedbgSession {
     if (!child) return;
 
     this.process = null;
-    this.isReady = false;
-    this.clearBuffer();
-    this.awaitingAbandonedPrompt = false;
-    this.droppedChars = 0;
+    this.resetState();
     // A start() in flight outlives neither this stop nor its ready timer: the
     // caller is awaiting a prompt that can no longer arrive.
     const initReject = this.initReject;

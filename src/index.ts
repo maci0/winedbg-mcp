@@ -56,9 +56,7 @@ const server = new Server(
 
 const session = new WinedbgSession(config.binary, config.readyTimeoutMs);
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools: TOOLS };
-});
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
 // A tool call is a debugger command carrying the authority of the account the
 // server runs as, and the reply stream is written by the program under debug, so
