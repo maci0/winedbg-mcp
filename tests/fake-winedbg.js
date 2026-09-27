@@ -12,9 +12,11 @@
 // Invoked with "die" as argv[2] it exits before printing a prompt; with "mute"
 // it stays alive and never prints one, so the caller hits its start timeout;
 // with "grandchild" it starts a debuggee of its own, which is what a real
-// winedbg does for the program it is launched with; with "stubborn" it does the
-// same and ignores SIGTERM, the way a debugger stopped inside a trap handler
-// does, so only the kill escalation ends it.
+// winedbg does for the program it is launched with, and with
+// "grandchild-stubborn" that debuggee ignores SIGTERM as well, so only the
+// escalation ends it; with "stubborn" it starts the same debuggee and ignores
+// SIGTERM itself, the way a debugger stopped inside a trap handler does, so
+// only the kill escalation ends it.
 
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
@@ -23,14 +25,20 @@ if (process.argv[2] === "die") process.exit(2);
 
 if (process.argv[2] === "stubborn") process.on("SIGTERM", () => {});
 
+const wantsDebuggee =
+  process.argv[2] === "grandchild" || process.argv[2] === "grandchild-stubborn" || process.argv[2] === "stubborn";
+const wantsStubbornDebuggee = process.argv[2] === "grandchild-stubborn";
+// A debuggee that ignores SIGTERM is reparented the moment its debugger dies,
+// and nothing then signals it again unless the group is escalated.
+const DEBUGGEE_SOURCE = wantsStubbornDebuggee
+  ? 'setInterval(() => {}, 1000);process.on("SIGTERM", () => {})'
+  : "setInterval(() => {}, 1000)";
+
 if (process.argv[2] !== "mute") process.stdout.write("Wine-dbg>");
 
 // Same process group as this process, and it survives this one exiting unless
 // the whole group is signalled.
-const debuggee =
-  process.argv[2] === "grandchild" || process.argv[2] === "stubborn"
-    ? spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
-    : null;
+const debuggee = wantsDebuggee ? spawn(process.execPath, ["-e", DEBUGGEE_SOURCE], { stdio: "ignore" }) : null;
 
 // A command is one write from the caller, but a long one can still be split
 // across reads, and decoding a chunk in isolation turns the tail of a
