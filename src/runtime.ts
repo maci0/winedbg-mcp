@@ -14,9 +14,15 @@ export interface Timer {
   unref(): void;
 }
 
-/** The only clock the session reads. Timeouts and backoff are delays on it, not on the host. */
+/**
+ * The only clock the session reads. Timeouts and backoff are delays on it, not
+ * on the host, and the session reads the time off it too: a log line carrying a
+ * measured duration is as much a result of the run as the reply it times.
+ */
 export interface Clock {
   setTimeout(callback: () => void, delayMs: number): Timer;
+  /** Milliseconds on this clock, the only time source in the session. */
+  now(): number;
 }
 
 /**
@@ -51,6 +57,12 @@ export interface DebuggerChild {
 export type SessionRuntime = {
   readonly clock: Clock;
   spawn(binary: string, args: string[]): DebuggerChild;
+  /**
+   * Whether the process group led by `pid` is still there. A signal-0 probe in
+   * the session's own code would make every simulated run read the host process
+   * table, so the probe is the runtime's to make and a simulator's to answer.
+   */
+  groupAlive(pid: number): boolean;
 };
 
 class NodeTimer implements Timer {
@@ -173,6 +185,7 @@ export function nodeRuntime(): SessionRuntime {
   return {
     clock: {
       setTimeout: (callback, delayMs) => new NodeTimer(setTimeout(callback, delayMs)),
+      now: () => Date.now(),
     },
     spawn: (binary, args) =>
       new NodeDebuggerChild(
@@ -183,5 +196,15 @@ export function nodeRuntime(): SessionRuntime {
           detached: true,
         }),
       ),
+    groupAlive: (pid) => {
+      try {
+        // Signal 0 reaches no process and reports whether the group is still
+        // there. ESRCH is the answer that says it is not.
+        process.kill(-pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 }

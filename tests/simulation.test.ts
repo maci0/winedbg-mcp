@@ -15,7 +15,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger } from "../src/logger.js";
-import type { Clock, DebuggerChild, Timer } from "../src/runtime.js";
+import type { Clock, DebuggerChild, SessionRuntime, Timer } from "../src/runtime.js";
 import { WinedbgSession } from "../src/session.js";
 
 const PROMPT = "Wine-dbg>";
@@ -57,12 +57,17 @@ class VirtualTimer implements Timer {
 class VirtualClock implements Clock {
   private timers: VirtualTimer[] = [];
   private seq = 0;
-  now = 0;
+  private time = 0;
 
   setTimeout(callback: () => void, delayMs: number): Timer {
-    const timer = new VirtualTimer(this.now + Math.max(0, delayMs), this.seq++, callback);
+    const timer = new VirtualTimer(this.time + Math.max(0, delayMs), this.seq++, callback);
     this.timers.push(timer);
     return timer;
+  }
+
+  /** The time the session measures its own durations against, as a virtual one. */
+  now(): number {
+    return this.time;
   }
 
   /**
@@ -71,7 +76,7 @@ class VirtualClock implements Clock {
    * clock, so the order is the same on every machine and every run.
    */
   advance(ms: number): void {
-    const target = this.now + ms;
+    const target = this.time + ms;
     for (;;) {
       const due = this.timers
         .filter((timer) => !timer.cancelled && timer.at <= target)
@@ -79,10 +84,10 @@ class VirtualClock implements Clock {
       const next = due[0];
       if (next === undefined) break;
       this.timers.splice(this.timers.indexOf(next), 1);
-      this.now = Math.max(this.now, next.at);
+      this.time = Math.max(this.time, next.at);
       next.fire();
     }
-    this.now = target;
+    this.time = target;
   }
 }
 
@@ -260,6 +265,41 @@ class SimulatedDebugger implements DebuggerChild {
   }
 }
 
+/**
+ * The runtime a simulated run is given: virtual time, an in-memory debugger,
+ * and a process-group probe answered from the fake's own state. The fake's pid
+ * names no real process, so a probe left to the host would either find a group
+ * that has nothing to do with this run or fail on one that does, and the wait
+ * after a stop would be an account of the host's process table rather than of
+ * the run.
+ */
+class SimulatedRuntime implements SessionRuntime {
+  readonly clock: VirtualClock;
+  /** Every pid the session asked about, in the order it asked. */
+  readonly groupProbes: number[] = [];
+
+  constructor(
+    clock: VirtualClock,
+    private readonly fake: SimulatedDebugger,
+  ) {
+    this.clock = clock;
+  }
+
+  spawn(): DebuggerChild {
+    return this.fake;
+  }
+
+  groupAlive(pid: number): boolean {
+    if (pid !== this.fake.pid) {
+      throw new Error(`probed a process group the run did not spawn: ${pid}`);
+    }
+    this.groupProbes.push(pid);
+    // A real group outlives the debugger by as long as the debuggee takes to
+    // wind down, and this fake has no debuggee: it is there until it ends.
+    return !this.fake.ended;
+  }
+}
+
 /** mulberry32: small, and a fixed seed always yields the same stream. */
 function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
@@ -348,13 +388,11 @@ async function runScenario(seed: number): Promise<{ transcript: string[]; signal
   const fake = new SimulatedDebugger(clock, rng, promptDelayMs);
   // The logger discards: a run is compared by its transcript, and stderr
   // session lines from a thousand seeds would bury a failure.
+  const runtime = new SimulatedRuntime(clock, fake);
   const session = new WinedbgSession(
     "winedbg",
     READY_TIMEOUT_MS,
-    {
-      clock,
-      spawn: () => fake,
-    },
+    runtime,
     createLogger("debug", () => {}),
   );
   const transcript: string[] = [];
@@ -496,7 +534,7 @@ describe("session simulation", () => {
     // session that reads it exists.
     const clock = new VirtualClock();
     const trapped = new SimulatedDebugger(clock, () => 0, 12);
-    const stubborn = new WinedbgSession("winedbg", READY_TIMEOUT_MS, { clock, spawn: () => trapped });
+    const stubborn = new WinedbgSession("winedbg", READY_TIMEOUT_MS, new SimulatedRuntime(clock, trapped));
     const ready = await settle(
       clock,
       stubborn.start().then(() => ""),
@@ -511,7 +549,7 @@ describe("session simulation", () => {
     expect(stubborn.isRunning()).toBe(false);
 
     const cooperative = new SimulatedDebugger(clock, () => 1, 12);
-    const polite = new WinedbgSession("winedbg", READY_TIMEOUT_MS, { clock, spawn: () => cooperative });
+    const polite = new WinedbgSession("winedbg", READY_TIMEOUT_MS, new SimulatedRuntime(clock, cooperative));
     expect(
       (
         await settle(
@@ -526,6 +564,40 @@ describe("session simulation", () => {
     // would have torn them down never ran.
     expect(cooperative.signals).toEqual(["SIGTERM"]);
     expect(cooperative.pipesClosed).toBe(false);
+  });
+
+  test("asks the runtime about the process group, not the host", async () => {
+    // The fake's pid names no process on this machine, so a session that
+    // probed the host for it would be told about whatever group happens to hold
+    // that number here, and the wait after a stop would be an account of the
+    // host's process table rather than of the run. Every poll is the runtime's,
+    // and a runtime that says the group is gone ends the wait on the first.
+    const clock = new VirtualClock();
+    const fake = new SimulatedDebugger(clock, () => 1, 12);
+    const runtime = new SimulatedRuntime(clock, fake);
+    const s = new WinedbgSession(
+      "winedbg",
+      READY_TIMEOUT_MS,
+      runtime,
+      createLogger("debug", () => {}),
+    );
+    expect(
+      (
+        await settle(
+          clock,
+          s.start().then(() => ""),
+        )
+      ).ok,
+    ).toBe(true);
+    s.stop();
+    // The start after a stop waits for the debugger the stop signalled, and
+    // that wait is where the group is probed. The fake cannot prompt a second
+    // time, so the start itself is not what this test is about.
+    await settle(
+      clock,
+      s.start().then(() => ""),
+    );
+    expect(runtime.groupProbes).toEqual([fake.pid]);
   });
 
   test("replays a seed byte for byte", async () => {

@@ -405,6 +405,9 @@ describe("executeCommand", () => {
     const s = new WinedbgSession("winedbg", READY_TIMEOUT_MS, {
       clock: nodeRuntime().clock,
       spawn: () => pipe,
+      // The pid is not a real process, so a probe left to the host would answer
+      // about the host's process table. This fake is never stopped here either.
+      groupAlive: () => false,
     });
     session = s;
     const started = s.start();
@@ -749,7 +752,7 @@ describe("the overflow cut", () => {
     const s = new WinedbgSession(
       "winedbg",
       READY_TIMEOUT_MS,
-      { clock: nodeRuntime().clock, spawn: () => fake },
+      { clock: nodeRuntime().clock, spawn: () => fake, groupAlive: () => false },
       createLogger("debug", () => {}),
     );
     const started = s.start();

@@ -47,7 +47,13 @@ export const LINE_BREAKS = /[\n\r\v\f\0\u0085\u2028\u2029]/;
 // types, and the search stops rather than walking a megabyte of one.
 const CLUSTER_WINDOW_CHARS = 64;
 
-const CLUSTER_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+// Grapheme boundaries follow UAX #29, which is not tailored per locale, but
+// leaving the locale out would resolve it from the host's environment: the same
+// cut through the same text would then depend on where the run happened. Named
+// and constant, so a reply is trimmed the same way everywhere.
+const SEGMENTER_LOCALE = "en";
+
+const CLUSTER_SEGMENTER = new Intl.Segmenter(SEGMENTER_LOCALE, { granularity: "grapheme" });
 
 /** Whether two start calls ask for the same launch. argv order matters to winedbg. */
 function sameArgs(a: readonly string[], b: readonly string[]): boolean {
@@ -283,7 +289,7 @@ export class WinedbgSession {
       );
     }
     this.process = child;
-    const startedAt = Date.now();
+    const startedAt = this.runtime.clock.now();
     this.log.info("winedbg spawned, waiting for its first prompt", {
       binary: this.binary,
       args: JSON.stringify(args),
@@ -350,7 +356,7 @@ export class WinedbgSession {
           this.clearReadyTimer();
           this.log.info("winedbg is at its first prompt", {
             pid: child.pid ?? null,
-            readyMs: Date.now() - startedAt,
+            readyMs: this.runtime.clock.now() - startedAt,
           });
           resolve();
         }
@@ -486,19 +492,14 @@ export class WinedbgSession {
   /**
    * Wait for the process group a signalled debugger led to be gone. Bounded by a
    * count of polls rather than by a reading of the clock, so it costs the same on
-   * every clock this session is given.
+   * every clock this session is given, and the liveness probe is the runtime's to
+   * make, so a run under a simulator never reads the host process table.
    */
   private async awaitGroupExit(child: DebuggerChild): Promise<void> {
     const pid = child.pid;
     if (pid === undefined) return;
     for (let poll = GROUP_EXIT_POLLS; poll > 0; poll--) {
-      try {
-        // Signal 0 reaches no process and reports whether the group is still
-        // there. ESRCH is the answer that ends the wait.
-        process.kill(-pid, 0);
-      } catch {
-        return;
-      }
+      if (!this.runtime.groupAlive(pid)) return;
       await new Promise<void>((resolve) => {
         const timer = this.runtime.clock.setTimeout(resolve, GROUP_POLL_INTERVAL_MS);
         timer.unref();
@@ -728,9 +729,13 @@ export class WinedbgSession {
       );
     }
     return new Promise((resolve, reject) => {
-      const sentAt = Date.now();
+      const sentAt = this.runtime.clock.now();
       const timeout = this.runtime.clock.setTimeout(() => {
-        this.log.error("winedbg command timed out", { command, timeoutMs, commandMs: Date.now() - sentAt });
+        this.log.error("winedbg command timed out", {
+          command,
+          timeoutMs,
+          commandMs: this.runtime.clock.now() - sentAt,
+        });
         this.abandonCurrent(new Error(`Command timed out after ${timeoutMs}ms: ${JSON.stringify(command)}`));
       }, timeoutMs);
 

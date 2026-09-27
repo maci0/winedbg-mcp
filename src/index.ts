@@ -6,6 +6,7 @@ import { parseCliArgs, UsageError } from "./cli.js";
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
+import { nodeRuntime } from "./runtime.js";
 import { WinedbgSession } from "./session.js";
 import { callTool, describeTools, type ToolResult } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
@@ -62,7 +63,11 @@ const server = new Server(
 const log = createLogger(config.logLevel, (line) => {
   process.stderr.write(`${line}\n`);
 });
-const session = new WinedbgSession(config.binary, config.readyTimeoutMs, undefined, log, config.commandTimeoutMs);
+// One runtime for the whole server, so the session and the timings this file
+// logs are read off the same clock: a duration measured on the host beside a
+// session running on a virtual one is a number from two different runs.
+const runtime = nodeRuntime();
+const session = new WinedbgSession(config.binary, config.readyTimeoutMs, runtime, log, config.commandTimeoutMs);
 const tools = describeTools(config.commandTimeoutMs);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
@@ -79,7 +84,7 @@ let callCounter = 0;
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const callId = `call-${++callCounter}`;
   const tool = request.params.name;
-  const startedAt = Date.now();
+  const startedAt = runtime.clock.now();
   log.info("tool call started", { callId, tool });
   let result: ToolResult;
   try {
@@ -91,12 +96,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     log.error("tool call rejected", {
       callId,
       tool,
-      durationMs: Date.now() - startedAt,
+      durationMs: runtime.clock.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
   }
-  const durationMs = Date.now() - startedAt;
+  const durationMs = runtime.clock.now() - startedAt;
   // A failed tool call still answered the client, so it is a call that completed
   // with an error, not a missing one: the outcome rides on the same line as the
   // duration, which is what answers "did it succeed and how long did it take".

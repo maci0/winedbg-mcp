@@ -93,6 +93,16 @@ section 4 is the order.
   the version the package declares, and when the released versions are repeated
   or listed oldest first. A version bump with no release section, and a dated
   section with no bump, now fail the gate rather than shipping.
+- The session reads the time off the `Clock` it is given instead of
+  `Date.now()`, and the process-group probe after a stop is a method on
+  `SessionRuntime` instead of a `process.kill` in the session. Every timeout was
+  already a delay on the injected clock, so a simulated run waited on virtual
+  time and then measured its durations, and counted how long a wait took, on the
+  host clock: a transcript that replays byte for byte could still carry
+  `readyMs` and `lifetimeMs` from the machine it ran on, and a simulated run
+  asked the host whether a process group its fake never spawned was still
+  there. The reply is cut on grapheme boundaries under a named locale rather
+  than the host's, so the same text trims the same way on every host.
 
 ### Notes for users
 

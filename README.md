@@ -28,7 +28,7 @@ Source layout, one concern per module:
 | `src/tools.ts` | the MCP tool list and the call dispatch |
 | `src/validate.ts` | validation of untyped tool arguments |
 | `src/session.ts` | the winedbg child process and its prompt protocol |
-| `src/runtime.ts` | the process and clock the session reaches the outside world through |
+| `src/runtime.ts` | the process, the clock and the process-group probe the session reaches the outside world through |
 | `src/logger.ts` | the stderr log line format and the level filter |
 | `src/config.ts` | reading and validating the environment |
 | `src/constants.ts` | defaults and limits shared across the above |
@@ -284,9 +284,11 @@ a debuggee that outlives its debugger.
 
 `tests/simulation.test.ts` covers the same state machine with no process and no
 host clock. It supplies its own `SessionRuntime` (see `src/runtime.ts`): a
-virtual clock and a debugger in memory. One seed chooses every reply delay,
-chunking pattern, crash and kill outcome, so a run is reproducible and a failure
-prints the seed that produced it:
+virtual clock the session also measures against, a debugger in memory, and the
+process-group probe the wait after a stop makes, answered from the fake's own
+state rather than from the host's process table. One seed chooses every reply
+delay, chunking pattern, crash and kill outcome, so a run is reproducible and a
+failure prints the seed that produced it:
 
 ```bash
 WINEDBG_MCP_SIM_SEED=1014 bun test tests/simulation.test.ts
