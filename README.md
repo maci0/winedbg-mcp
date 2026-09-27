@@ -9,7 +9,7 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 
 ## Installation
 
-1. Clone the repository or install the package.
+1. Clone the repository.
 2. Install dependencies:
    ```bash
    bun install
@@ -61,8 +61,6 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 
 ## Tools Available
 
-This server provides the following tools:
-
 - **`winedbg_start`**: Start or attach `winedbg`. Use this before running any commands. You can optionally provide arguments like the path to a `.exe` to launch, or a PID to attach to (e.g., `{"args": ["myapp.exe"]}`).
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
   Takes an optional `timeout` in milliseconds (default 30000, maximum 600000).
@@ -104,8 +102,6 @@ The suite drives `WinedbgSession` against `tests/fake-winedbg.js`, a stand-in th
 speaks the same `Wine-dbg>` prompt protocol, so it runs without Wine installed, and
 checks the tool-argument validation in `src/validate.ts` and the environment
 parsing in `src/config.ts`.
-
-CI runs both on every push and pull request.
 
 ## License
 
