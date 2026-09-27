@@ -3,12 +3,12 @@
 // Commands: quit (exit 0), crash (exit 3), selfkill (SIGKILL, no exit code),
 // hang (never prompts again), pid (the debuggee pid), selfpid (its own pid),
 // "sleep:<ms>" (replies after <ms>), warn (writes to stderr), silent (prompt
-// only), close-stdin (stops
-// reading commands), "noise:<n>" (a reply of n characters), "dribble:<n>" (the
-// same, in pieces small enough to arrive one read at a time), utf8 (a non-ASCII
-// reply written one byte at a time, so every character spans two reads),
-// "utf8:<text>" (that text in UTF-8, one byte per write), "astral:<n>" (n emoji,
-// two UTF-16 units each), anything else echoes back.
+// only), close-stdin (stops reading commands), "noise:<n>" (a reply of n
+// characters), "dribble:<n>" (the same, in pieces small enough to arrive one
+// read at a time), utf8 (a non-ASCII reply written one byte at a time, so every
+// multi-byte character spans two reads), "utf8:<text>" (that text in UTF-8, one
+// byte per write), "astral:<n>" (n emoji, two UTF-16 units each), anything else
+// echoes back.
 // Invoked with "die" as argv[2] it exits before printing a prompt; with "mute"
 // it stays alive and never prints one, so the caller hits its start timeout;
 // with "grandchild" it starts a debuggee of its own, which is what a real

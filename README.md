@@ -10,11 +10,10 @@ parsing and the tool-argument validation; `build/` is the compiled output of
 `bun run build`; `tests/` covers all of those, and CI (`.github/workflows/ci.yml`)
 runs the install, `bun run check` (Biome, both type-check passes and the
 suite), the build and the artifact check. The session tests drive
-`WinedbgSession`
-against a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the
-suite needs no Wine. No test here has been run against a real `winedbg`: the
-debugger is the one thing the fixtures replace, so the suite proves the prompt
-protocol and the tool argument handling, not Wine itself. See
+`WinedbgSession` against a stand-in that speaks the same `Wine-dbg>` prompt
+protocol, so the suite needs no Wine. No test here has been run against a real
+`winedbg`: the debugger is the one thing the fixtures replace, so the suite
+proves the prompt protocol and the tool argument handling, not Wine itself. See
 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) records the attack surface, the
 trust boundaries and the mitigations, read off the source rather than off this
 README.
@@ -258,7 +257,6 @@ bun run format         # Biome autofix: formatting, imports and every safe rule 
 bun run typecheck      # tsc on src/, then on src/ + tests/
 bun run build          # tsc, then the executable build/index.js
 bun test
-bun run build
 scripts/verify-artifact.sh
 ```
 
@@ -314,7 +312,7 @@ Formatting is Biome's, and the line width is 120 columns, the width the tree was
 already written to. `src/index.ts` keeps one scoped `noConsole` suppression:
 stdout carries the MCP JSON-RPC stream, so the configuration failure has to go to
 stderr. Everything else it writes goes through the logger, which writes to
-stderr by construction (`src/logger.ts:55-58`).
+stderr by construction (`src/logger.ts:45-48`).
 
 ## Troubleshooting
 

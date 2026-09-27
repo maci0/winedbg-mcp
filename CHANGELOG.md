@@ -182,5 +182,6 @@ First release. There is no earlier version to upgrade from.
   `winedbg`; see the Unreleased notes for the bounds that go with it.
 - After a command times out, further commands are refused until the debugger
   prints its prompt again. Call `winedbg_stop` and start again if it never does.
-- A single reply is buffered up to 1M code points. Past the cap the oldest
-  output is dropped and the reply reports how many code points went missing.
+- A single reply is buffered up to 1M UTF-16 code units. Past the cap the oldest
+  output is dropped to keep the last three quarters, and the reply reports
+  how many code points went missing.
