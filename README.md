@@ -83,7 +83,7 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 
 - **`winedbg_start`**: Start `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works, such as the program to launch (e.g. `{"args": ["myapp.exe"]}`).
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
-  Takes an optional `timeout` in milliseconds (default 30000, maximum 600000).
+  Takes an optional `timeout` in milliseconds (default 30000, minimum 1, maximum 600000).
 - **`winedbg_stop`**: Stop the active `winedbg` session.
 
 ### Command framing
@@ -96,8 +96,8 @@ through the tools:
   rejected, because every one of them draws its own prompt and puts every later reply
   one command behind. The rejected set is `\n`, `\r`, vertical tab, form feed, NEL
   (U+0085), and the Unicode line and paragraph separators (U+2028, U+2029). A stream
-  reader splits on the first three, and readers disagree on the rest, so a command is
-  one line only if it is one line under every one of them.
+  reader splits on `\n`, `\r` and vertical tab, and readers disagree on the rest, so a
+  command is one line only if it is one line under every one of them.
 - After a command times out, further commands are refused until the debugger
   prints its prompt again. A debugger that has not returned to its prompt is not
   reading commands, and whatever it prints next belongs to the command that timed
@@ -114,7 +114,7 @@ starts mid-sequence, and the reply reports how many code points went missing.
 
 ## Usage Example
 
-1. Call `winedbg_start` with `{"args": ["my_program.exe"]}`.
+1. Call `winedbg_start` with `{"args": ["myapp.exe"]}`.
 2. Call `winedbg_execute` with `{"command": "break main"}`.
 3. Call `winedbg_execute` with `{"command": "run"}`.
 4. Call `winedbg_execute` with `{"command": "bt"}` to get a backtrace.
@@ -144,10 +144,10 @@ produced, so the text names the state to fix:
 | --- | --- |
 | `winedbg is not running. Please start it first.` | A command ran with no live session, including one whose `winedbg` exited |
 | `winedbg is already running. Please stop it first.` | `winedbg_start` was called twice; call `winedbg_stop` first |
-| `Another command is already in progress.` | One command per call, and the previous one has not answered yet |
+| `Another command is already in progress: ...` | One command per call, and the previous one has not answered yet. The message names that command and tells the caller to wait for its reply |
 | `Configuration error: ...` on stderr at startup | An environment value the server cannot use, named in the message. The server exits with status 1 instead of starting on defaults |
 | `Timeout waiting for winedbg to start (Nms)` | No prompt within `WINEDBG_MCP_READY_TIMEOUT_MS`; the child is killed. Raise the variable for a cold wineprefix |
 
 ## License
 
-ISC
+ISC. This tree ships no `LICENSE` file, so the terms are stated here only.
