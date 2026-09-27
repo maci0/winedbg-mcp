@@ -52,6 +52,15 @@ section 4 is the order.
 
 ### Changed
 
+- `winedbg_start` with the same `args` as the running session is now the running
+  session, whether the first call is still waiting for its first prompt or has
+  been there for a while, and the reply says it launched nothing. A repeated
+  call used to fail with `winedbg is already running`, which is the answer that
+  pushes a client that never saw the first answer to stop and start again: a
+  second launch of the same program, and a kill of the one already under debug.
+  A start naming different `args` is a different request and is still refused.
+- Every tool description now states what a repeated call does, including that
+  `winedbg_execute` runs its command again rather than answering from a cache.
 - Declared dependency floors now match the versions the test suite runs
   against: `@modelcontextprotocol/sdk` `^1.30.0`, `@types/node` `^22.20.1`,
   `typescript` `^5.9.3`. A `bun update` can no longer land on a release the

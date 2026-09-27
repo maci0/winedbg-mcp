@@ -14,7 +14,7 @@ const call = (session: ToolSession, name: string, args?: Record<string, unknown>
 
 function stubSession(overrides: Partial<ToolSession> = {}): ToolSession {
   const session: ToolSession = {
-    start: async () => {},
+    start: async () => "started",
     executeCommand: async () => "bt\n#0 0x7b\nWine-dbg>",
     stop: () => {},
   };
@@ -87,6 +87,7 @@ describe("callTool", () => {
       stubSession({
         start: async (args: string[]) => {
           started = args;
+          return "started";
         },
       }),
       "winedbg_start",
@@ -101,17 +102,29 @@ describe("callTool", () => {
     let started: string[] | undefined;
     // The call a model makes to attach to a PID it names in prose, or with no
     // arguments at all, reaches the debugger with nothing on its command line.
-    const result = await callTool(
+    const result = await call(
       stubSession({
         start: async (args: string[]) => {
           started = args;
+          return "started";
         },
       }),
       "winedbg_start",
-      undefined,
     );
     expect(started).toEqual([]);
     expect(result.content[0]?.text).toBe("winedbg started successfully with args: ");
+  });
+
+  // A retry that joined a session already asked for has to say so: the caller
+  // reads this to decide whether a debugger, and the debuggee it launches, is
+  // one it has or one it has to wait for.
+  test("a start that joined a running session says it launched nothing", async () => {
+    const result = await call(stubSession({ start: async () => "already-running" }), "winedbg_start", {
+      args: ["myapp.exe"],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toContain("already running");
+    expect(result.content[0]?.text).toContain("launched nothing");
   });
 
   test("execute reports the debugger output", async () => {
@@ -188,18 +201,18 @@ describe("callTool", () => {
         return "bt";
       },
     });
-    await callTool(session, "winedbg_execute", { command: "bt" });
+    await call(session, "winedbg_execute", { command: "bt" });
     expect(seen).toEqual([DEFAULT_COMMAND_TIMEOUT_MS]);
     // The caller's own bound reaches the session rather than the default
     // quietly replacing it, which is what makes a timeout the model asked for
     // the one that fires.
-    await callTool(session, "winedbg_execute", { command: "cont", timeout: 1234 });
+    await call(session, "winedbg_execute", { command: "cont", timeout: 1234 });
     expect(seen).toEqual([DEFAULT_COMMAND_TIMEOUT_MS, 1234]);
   });
 
   test("execute refuses a timeout outside the range before the session sees it", async () => {
     let called = false;
-    const result = await callTool(
+    const result = await call(
       stubSession({
         executeCommand: async () => {
           called = true;

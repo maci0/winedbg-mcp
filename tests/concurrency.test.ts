@@ -75,14 +75,31 @@ afterEach(() => {
 });
 
 describe("concurrent tool calls", () => {
-  test("two starts racing each other: one session, one refusal, and it works", async () => {
+  test("two starts racing each other: one debugger, one launch, and it works", async () => {
     const s = new WinedbgSession(process.execPath);
     session = s;
-    // Both calls enter in the same tick, so the second finds the child the
-    // first has already spawned rather than racing it for the slot.
+    // Both calls enter in the same tick, so the second finds the launch the
+    // first has not finished rather than racing it for the slot. They carry the
+    // same args, so they are the same request twice: both are answered, and one
+    // of them says it launched nothing.
     const [first, second] = await Promise.all([
       call(s, "winedbg_start", { args: [FAKE] }),
       call(s, "winedbg_start", { args: [FAKE] }),
+    ]);
+    expect([first, second].filter(isRefusal)).toHaveLength(0);
+    expect([textOf(first), textOf(second)].filter((text) => text.includes("launched nothing"))).toHaveLength(1);
+    expect(s.isRunning()).toBe(true);
+    expect(textOf(await call(s, "winedbg_execute", { command: "bt" }))).toBe("ran: bt");
+  });
+
+  test("two starts racing with different arguments: one session, one refusal", async () => {
+    const s = new WinedbgSession(process.execPath);
+    session = s;
+    // Different argv is a different request, so the second is refused rather
+    // than joined: joining it would answer for a debugger nobody launched.
+    const [first, second] = await Promise.all([
+      call(s, "winedbg_start", { args: [FAKE] }),
+      call(s, "winedbg_start", { args: [FAKE, "grandchild"] }),
     ]);
     const outcomes = [first, second];
     expect(outcomes.filter((result) => !isRefusal(result))).toHaveLength(1);

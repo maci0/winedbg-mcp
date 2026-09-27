@@ -142,9 +142,43 @@ describe("start", () => {
     expect(s.isRunning()).toBe(true);
   });
 
-  test("rejects a second start while a session is running", async () => {
+  test("rejects a second start with other arguments", async () => {
     const s = await startedSession();
-    await expect(s.start([FAKE])).rejects.toThrow(/already running/);
+    await expect(s.start([FAKE, "grandchild"])).rejects.toThrow(/already running/);
+    expect(s.isRunning()).toBe(true);
+  });
+
+  test("joins the session a repeated start already asked for", async () => {
+    const s = await startedSession();
+    const pid = await s.executeCommand("selfpid");
+    // A retry the client never saw answered asks for a debugger that is already
+    // at its prompt. Failing it pushes the caller to stop and start, which is a
+    // second launch of the same argv and a kill of what is under debug.
+    expect(await s.start([FAKE])).toBe("already-running");
+    // One debugger, still the one the first start spawned.
+    expect(await s.executeCommand("selfpid")).toBe(pid);
+    expect(s.isRunning()).toBe(true);
+  });
+
+  test("two starts racing with the same arguments produce one debugger", async () => {
+    const s = newSession();
+    // Both calls enter in the same tick, so the second finds the launch the
+    // first has not finished rather than racing it for the slot.
+    const [first, second] = await Promise.all([s.start([FAKE]), s.start([FAKE])]);
+    expect([first, second]).toEqual(["started", "already-running"]);
+    expect(s.isRunning()).toBe(true);
+    // The fake prints a pid, and one debugger behind that pid is the whole
+    // claim: a second launch would show here as a second start.
+    expect(Number(await s.executeCommand("selfpid"))).toBeGreaterThan(0);
+  });
+
+  test("two starts racing with different arguments launch one and refuse one", async () => {
+    const s = newSession();
+    // allSettled, not all: one of the two is expected to reject, and Promise.all
+    // drops the outcome of the other the moment it does.
+    const [first, second] = await Promise.allSettled([s.start([FAKE]), s.start([FAKE, "grandchild"])]);
+    const outcomes = [first, second].map((outcome) => (outcome.status === "fulfilled" ? outcome.value : "refused"));
+    expect(outcomes.sort()).toEqual(["refused", "started"]);
     expect(s.isRunning()).toBe(true);
   });
 

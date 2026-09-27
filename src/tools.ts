@@ -24,7 +24,7 @@ export function describeTools(defaultCommandTimeoutMs: number) {
     {
       name: "winedbg_start",
       description:
-        "Start or attach winedbg. Use this before running any commands. You can optionally provide arguments like the path to a .exe to launch, or a PID to attach to.",
+        "Start or attach winedbg. Use this before running any commands. You can optionally provide arguments like the path to a .exe to launch, or a PID to attach to. Repeating this call with the same args returns the session already running rather than launching a second debugger; different args are refused.",
       inputSchema: {
         type: "object",
         properties: {
@@ -39,7 +39,7 @@ export function describeTools(defaultCommandTimeoutMs: number) {
     {
       name: "winedbg_execute",
       description:
-        "Execute one command in the active winedbg session. (e.g., 'bt', 'step', 'break main'). One command per call: multi-line input is rejected. This requires winedbg_start to have been called.",
+        "Execute one command in the active winedbg session. (e.g., 'bt', 'step', 'break main'). One command per call: multi-line input is rejected. This requires winedbg_start to have been called. This runs the command again on every call: do not repeat a call that steps, continues or writes debugger state unless you mean to run it twice.",
       inputSchema: {
         type: "object",
         properties: {
@@ -57,7 +57,8 @@ export function describeTools(defaultCommandTimeoutMs: number) {
     },
     {
       name: "winedbg_stop",
-      description: "Stop the active winedbg session.",
+      description:
+        "Stop the active winedbg session. Repeating this call, or calling it with nothing running, ends nothing further and reports success.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -86,8 +87,12 @@ export async function callTool(
     switch (name) {
       case "winedbg_start": {
         const startArgs = requireStringArray(args?.["args"], "args");
-        await session.start(startArgs);
-        return text(`winedbg started successfully with args: ${startArgs.join(" ")}`);
+        const outcome = await session.start(startArgs);
+        return text(
+          outcome === "started"
+            ? `winedbg started successfully with args: ${startArgs.join(" ")}`
+            : `winedbg is already running with args: ${startArgs.join(" ")}. The repeated start launched nothing.`,
+        );
       }
 
       case "winedbg_execute": {

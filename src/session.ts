@@ -49,6 +49,14 @@ const CLUSTER_WINDOW_CHARS = 64;
 
 const CLUSTER_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
+/** Whether two start calls ask for the same launch. argv order matters to winedbg. */
+function sameArgs(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((arg, index) => arg === b[index]);
+}
+
+/** What a start did: launched a debugger, or joined one already asked for. */
+export type StartOutcome = "started" | "already-running";
+
 /**
  * Code points in `text[0, end)`, which is what a reader counts, not the UTF-16
  * units String#length reports. Counted over a range rather than over a
@@ -136,6 +144,14 @@ export class WinedbgSession {
   // so a second start in the same tick is refused rather than racing the first
   // one past a check the first has not yet made true.
   private startPending: boolean = false;
+  // The launch a start is waiting on, so a repeated call with the same
+  // arguments joins it instead of racing it. Cleared when the launch settles.
+  private pendingStart: { args: string[]; launched: Promise<void> } | null = null;
+  // The arguments of the most recent start that was allowed to launch a
+  // debugger. Only written by a start that got past the guards below, so while a
+  // debugger is held this is exactly what it was launched with. Read to tell a
+  // repeated start from a different one; never read to launch anything.
+  private lastStartArgs: string[] | null = null;
   // Rejects the in-flight start(). Only the latest start is stored, because
   // start() refuses to run beside another one.
   private initReject: ((err: Error) => void) | null = null;
@@ -170,23 +186,62 @@ export class WinedbgSession {
   /**
    * Spawn the debugger and resolve once it prints its first prompt. `args`
    * reaches its argv unchanged, so a program to launch or a PID to attach to
-   * both work. Rejects if a session is already running, and kills the child if
-   * the prompt does not arrive within `readyTimeoutMs`.
+   * both work. Rejects if a session is already running with other arguments,
+   * and kills the child if the prompt does not arrive within `readyTimeoutMs`.
+   *
+   * A repeated call with the same arguments resolves on the session that call
+   * asked for instead of failing: a client that re-sends a start it never saw
+   * answered, or that launches a debuggee whose argv names a program with
+   * effects of its own, wants one debugger. Failing it would only push the
+   * caller to stop and start again, which is the duplicate this refuses to
+   * make: a second launch of the same program, or a kill of one already under
+   * debug. Different arguments are a different request and stay refused.
    */
   // async so that everything here, spawn() throwing on an argument it cannot
   // carry included, reaches the caller as a rejection. A synchronous throw would
   // slip past a caller that handles the returned promise.
-  async start(args: string[] = []): Promise<void> {
-    if (this.process || this.startPending) {
+  async start(args: string[] = []): Promise<StartOutcome> {
+    // The same request arriving while the first is still launching joins that
+    // launch and settles on its outcome, so two duplicates produce one debugger
+    // and one answer rather than a debugger and a refusal.
+    const pending = this.pendingStart;
+    if (pending !== null && sameArgs(pending.args, args)) {
+      this.log.info("winedbg is already starting with these arguments, the repeated start joins it", {
+        args: JSON.stringify(args),
+      });
+      await pending.launched;
+      return "already-running";
+    }
+    if (this.process !== null) {
+      // Only a debugger at its prompt can answer this as itself: a child that
+      // has been spawned but has not prompted yet is a launch still in flight,
+      // and joining that is the pending case above.
+      if (this.isReady && this.lastStartArgs !== null && sameArgs(this.lastStartArgs, args)) {
+        this.log.info("winedbg is already running with these arguments, the repeated start is ignored", {
+          args: JSON.stringify(args),
+          pid: this.process.pid ?? null,
+        });
+        return "already-running";
+      }
+      throw new Error("winedbg is already running. Please stop it first.");
+    }
+    // A start in flight with other arguments is a different request, and the one
+    // already under way is not there to be replaced by it.
+    if (this.startPending) {
       throw new Error("winedbg is already running. Please stop it first.");
     }
     this.startPending = true;
+    this.lastStartArgs = args.slice();
     const id = ++this.launchId;
     this.stopRequested = false;
+    const launched = this.launch(args, id);
+    this.pendingStart = { args: args.slice(), launched };
     try {
-      await this.launch(args, id);
+      await launched;
+      return "started";
     } finally {
       this.startPending = false;
+      this.pendingStart = null;
     }
   }
 

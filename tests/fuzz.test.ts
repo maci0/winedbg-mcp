@@ -285,6 +285,7 @@ function recordingSession(): Recorder {
     session: {
       start: async (args: string[]) => {
         started.push(args);
+        return "started";
       },
       executeCommand: async (command: string, timeout: number) => {
         executed.push({ command, timeout });
