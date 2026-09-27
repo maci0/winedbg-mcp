@@ -18,8 +18,14 @@ export const BINARY_VAR = "WINEDBG_MCP_BINARY";
 export const READY_TIMEOUT_VAR = "WINEDBG_MCP_READY_TIMEOUT_MS";
 export const COMMAND_TIMEOUT_VAR = "WINEDBG_MCP_COMMAND_TIMEOUT_MS";
 export const LOG_LEVEL_VAR = "WINEDBG_MCP_LOG_LEVEL";
-const KNOWN_VARS: readonly string[] = [BINARY_VAR, READY_TIMEOUT_VAR, COMMAND_TIMEOUT_VAR, LOG_LEVEL_VAR];
-const VAR_PREFIX = "WINEDBG_MCP_";
+export const PASSTHROUGH_VAR = "WINEDBG_MCP_PASSTHROUGH_ENV";
+const KNOWN_VARS: readonly string[] = [
+  BINARY_VAR,
+  READY_TIMEOUT_VAR,
+  COMMAND_TIMEOUT_VAR,
+  LOG_LEVEL_VAR,
+  PASSTHROUGH_VAR,
+];
 
 export type Config = {
   binary: string;
@@ -66,7 +72,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
 export function describeConfig(config: Config): string {
   return (
     `${BINARY_VAR}=${config.binary} ${READY_TIMEOUT_VAR}=${config.readyTimeoutMs} ` +
-    `${COMMAND_TIMEOUT_VAR}=${config.commandTimeoutMs} ${LOG_LEVEL_VAR}=${config.logLevel}`
+    `${COMMAND_TIMEOUT_VAR}=${config.commandTimeoutMs} ${LOG_LEVEL_VAR}=${config.logLevel} ` +
+    `${PASSTHROUGH_VAR}=${config.passthroughEnv.join(",")}`
   );
 }
 

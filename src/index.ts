@@ -68,7 +68,7 @@ const log = createLogger(config.logLevel, (line) => {
 // One runtime for the whole server, so the session and the timings this file
 // logs are read off the same clock: a duration measured on the host beside a
 // session running on a virtual one is a number from two different runs.
-const runtime = nodeRuntime();
+const runtime = nodeRuntime(process.env, config.passthroughEnv);
 const session = new WinedbgSession(config.binary, config.readyTimeoutMs, runtime, log, config.commandTimeoutMs);
 const tools = describeTools(config.commandTimeoutMs);
 

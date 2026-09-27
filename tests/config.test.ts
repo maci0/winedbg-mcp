@@ -12,6 +12,7 @@ import {
   describeConfig,
   LOG_LEVEL_VAR,
   loadConfig,
+  PASSTHROUGH_VAR,
   READY_TIMEOUT_VAR,
 } from "../src/config.js";
 import {
@@ -34,7 +35,7 @@ describe("loadConfig", () => {
     });
   });
 
-  test("all four variables override", () => {
+  test("all five variables override", () => {
     const config = loadConfig({
       [BINARY_VAR]: "/opt/wine/bin/winedbg",
       [READY_TIMEOUT_VAR]: "45000",
@@ -45,14 +46,9 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       binary: "/opt/wine/bin/winedbg",
       readyTimeoutMs: 45000,
-      logLevel: "debug",
-      passthroughEnv: ["COREPACK_ENABLE_STRICT"],
-    });
-    expect(config).toEqual({
-      binary: "/opt/wine/bin/winedbg",
-      readyTimeoutMs: 45000,
       commandTimeoutMs: 120000,
       logLevel: "debug",
+      passthroughEnv: ["COREPACK_ENABLE_STRICT"],
     });
   });
 
