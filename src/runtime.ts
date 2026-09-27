@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { CONFIG_VAR_PREFIX } from "./constants.js";
 
 /**
  * A scheduled callback. The session never needs the handle for anything but
@@ -64,6 +65,119 @@ export type SessionRuntime = {
    */
   groupAlive(pid: number): boolean;
 };
+
+/**
+ * The launcher's variables a debugger, a wineprefix and the program under
+ * debug need in order to run at all. Everything else stays here.
+ *
+ * The environment an MCP client launches the server with is the agent's own:
+ * API keys, registry tokens and cloud credentials all sit in it. The child
+ * inherits it, and winedbg hands it to the program under debug, which is
+ * whoever supplied the target. A target that prints its environment returns
+ * those credentials on the same pipe as its ordinary output, framed as a
+ * debugger reply and handed to the model. An allowlist is the only control
+ * that survives that, and it has to cover a debugger's real needs, so it lists
+ * what Wine and a Unix program under it read rather than everything.
+ */
+const FORWARDED_ENV_NAMES: ReadonlySet<string> = new Set([
+  // Where the executable is found, and where scratch files go.
+  "PATH",
+  "LD_LIBRARY_PATH",
+  "LD_PRELOAD",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "PWD",
+  // The account and the home a wineprefix defaults to. The child runs as this
+  // user either way, so withholding them buys no confidentiality and costs a
+  // default wineprefix location.
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TERM",
+  "SHLVL",
+  "OSTYPE",
+  "HOSTNAME",
+  // Where the display to debug lives.
+  "DISPLAY",
+  "WAYLAND_DISPLAY",
+  "XAUTHORITY",
+  "XDG_RUNTIME_DIR",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_DATA_HOME",
+  "XDG_SESSION_TYPE",
+  // Locale, which decides how a program's output is encoded and framed.
+  "LANG",
+  "LANGUAGE",
+  "TZ",
+  // What a Windows program under Wine reads for the host's equivalents.
+  "SYSTEMROOT",
+  "COMSPEC",
+  "PATHEXT",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "PROGRAMFILES",
+  "PROGRAMDATA",
+  "NUMBER_OF_PROCESSORS",
+  "PROCESSOR_ARCHITECTURE",
+]);
+
+/**
+ * Families a variable belongs to rather than a fixed name: Wine's own
+ * (WINEPREFIX, WINEDEBUG, WINEDLLOVERRIDES, ...), the locale's (LC_ALL, ...),
+ * the toolkit and driver settings a graphical program reads, and nothing else.
+ * A family is a widening on purpose, so each one is a name space whose members
+ * a Wine deployment chooses and not a credential prefix.
+ */
+const FORWARDED_ENV_PREFIXES: readonly string[] = [
+  "WINE",
+  "XDG_",
+  "LC_",
+  "SDL_",
+  "MESA_",
+  "LIBGL_",
+  "__GL_",
+  "GALLIUM_",
+  "DXVK_",
+  "VKD3D_",
+  "RADV_",
+  "GAMESCOPE_",
+  "DRI_",
+  "QT_",
+  "GTK_",
+  "GDK_",
+  "GIO_",
+];
+
+/**
+ * The environment the debugger is started with: the variables above, plus the
+ * ones a deployment named in `WINEDBG_MCP_PASSTHROUGH_ENV`, and nothing else.
+ * PATH is not optional, since it is what resolves a bare binary name, and a
+ * child with no environment at all fails in a way that reads like a broken
+ * wineprefix rather than a withheld variable.
+ */
+export function childEnv(env: NodeJS.ProcessEnv, passthrough: readonly string[] = []): NodeJS.ProcessEnv {
+  const forwarded: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    // This server's own variables sit under the WINE* family as far as the
+    // prefix list is concerned, and none of them is anything winedbg reads.
+    if (name.startsWith(CONFIG_VAR_PREFIX)) continue;
+    if (FORWARDED_ENV_NAMES.has(name) || FORWARDED_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))) {
+      forwarded[name] = value;
+    }
+  }
+  for (const name of passthrough) {
+    const value = env[name];
+    if (value !== undefined) forwarded[name] = value;
+  }
+  return forwarded;
+}
 
 class NodeTimer implements Timer {
   constructor(private readonly handle: NodeJS.Timeout) {}
@@ -181,7 +295,7 @@ class NodeDebuggerChild implements DebuggerChild {
 }
 
 /** Spawn a real winedbg and keep real time. */
-export function nodeRuntime(): SessionRuntime {
+export function nodeRuntime(env: NodeJS.ProcessEnv = process.env, passthrough: readonly string[] = []): SessionRuntime {
   return {
     clock: {
       setTimeout: (callback, delayMs) => new NodeTimer(setTimeout(callback, delayMs)),
@@ -194,6 +308,10 @@ export function nodeRuntime(): SessionRuntime {
           // Its own process group, so killTree() can reach the debuggee winedbg
           // started. Signalling winedbg alone leaves the debuggee running.
           detached: true,
+          // Not the launcher's environment: the child gets what a debugger and
+          // the program under it need, not every credential the MCP client
+          // started this server with.
+          env: childEnv(env, passthrough),
         }),
       ),
     groupAlive: (pid) => {

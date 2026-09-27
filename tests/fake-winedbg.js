@@ -151,6 +151,15 @@ function handle(line) {
     setTimeout(() => reply(line), Number(line.slice("sleep:".length)));
     return;
   }
+  if (line.startsWith("env:")) {
+    // The value the child actually inherited, so a test can assert on what a
+    // program under debug would read rather than on what was asked for.
+    const name = line.slice("env:".length);
+    const value = process.env[name];
+    process.stdout.write(`${name}=${value === undefined ? "<unset>" : value}\n`);
+    process.stdout.write("Wine-dbg>");
+    return;
+  }
   switch (line) {
     case "quit":
       return process.exit(0);

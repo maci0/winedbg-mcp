@@ -98,12 +98,15 @@ To use this with an MCP client (like Claude Desktop or Gemini), configure the MC
 All four are optional and read once at startup. There are no secrets and no
 config file: the environment is the only place to set these.
 
-That says what this server reads, not what its process holds. `winedbg` is
-started with the server's whole environment and working directory inherited, so
-anything the launcher put in the environment is visible to `winedbg` and to
-whatever program is being debugged. Keep credentials out of the environment a
-debugging server is launched from. `docs/THREAT_MODEL.md` records this and the
-rest of the attack surface.
+That says what this server reads, not what its process holds. The environment an
+MCP client launches a server with is the agent's own: API keys, registry tokens
+and cloud credentials sit in it, and the program under debug is whoever supplied
+the target. `winedbg` is therefore started with an allowlist rather than the
+whole environment: `PATH`, `HOME`, `DISPLAY`, the `WINE*`, `XDG_*`, `LC_*`,
+`SDL_*`, `MESA_*` and graphics-driver families, and the Windows-path variables a
+program under Wine reads. Everything else stays here. Name a variable winedbg
+turns out to need in `WINEDBG_MCP_PASSTHROUGH_ENV`. `docs/THREAT_MODEL.md`
+records this and the rest of the attack surface.
 
 | Variable | Default | Valid values |
 | --- | --- | --- |
@@ -111,11 +114,13 @@ rest of the attack surface.
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | `10000` | Whole milliseconds, 1 to 600000. How long `winedbg_start` waits for the first prompt. Raise it for a cold wineprefix, which takes far longer than a warm one |
 | `WINEDBG_MCP_COMMAND_TIMEOUT_MS` | `30000` | Whole milliseconds, 1 to 600000. How long `winedbg_execute` waits for a reply when the call names no `timeout` of its own. A `cont` on a busy process is slower than 30s on some hosts, and the per-call `timeout` argument still overrides this one |
 | `WINEDBG_MCP_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Below this level a line is never written |
+| `WINEDBG_MCP_PASSTHROUGH_ENV` | empty | Comma-separated variable names to forward to `winedbg` beside the allowlist, e.g. `COREPACK_ENABLE_STRICT` |
 
 A value the server cannot use stops it at startup with the variable named,
 rather than failing later as a spawn error or a start timeout. That includes a
-variable set to the empty string and a misspelled `WINEDBG_MCP_*` name, which
-would otherwise be ignored while the deployment ran on defaults. The startup line
+variable set to the empty string, a name that is not a variable name, and a
+misspelled `WINEDBG_MCP_*` name, which would otherwise be ignored while the
+deployment ran on defaults. The startup line
 on stderr reports the values in effect:
 
 ```json
