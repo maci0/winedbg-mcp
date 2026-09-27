@@ -17,6 +17,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger } from "../src/logger.js";
 import type { Clock, DebuggerChild, SessionRuntime, Timer } from "../src/runtime.js";
 import { WinedbgSession } from "../src/session.js";
+import { mulberry32 } from "./rng.js";
 
 const PROMPT = "Wine-dbg>";
 const REPLY_PREFIX = "ran: ";
@@ -298,18 +299,6 @@ class SimulatedRuntime implements SessionRuntime {
     // wind down, and this fake has no debuggee: it is there until it ends.
     return !this.fake.ended;
   }
-}
-
-/** mulberry32: small, and a fixed seed always yields the same stream. */
-function mulberry32(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 type Outcome = { ok: true; value: string } | { ok: false; error: string };

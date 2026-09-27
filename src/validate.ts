@@ -10,6 +10,8 @@ import { LINE_BREAKS } from "./session.js";
 // an argv entry and into a pipe write, so an unbounded one is a caller's memory
 // and the child's command line, for no debugging value.
 export const MAX_ARG_CHARS = 4096;
+// A separate limit from MAX_ARG_CHARS even at the same value: the two bound
+// different inputs, and the message that names one has to name its own bound.
 export const MAX_COMMAND_CHARS = 4096;
 // winedbg takes a program path and a handful of switches. An array this long is
 // a caller filling the process table, not a debugging session.

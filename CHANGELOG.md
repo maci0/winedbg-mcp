@@ -47,7 +47,7 @@ section 4 is the order.
 - CI type-checks the test suite (`tsc -p tsconfig.test.json`) as well as `src/`,
   next to the Biome check the gate runs locally.
 - A fuzz suite over the tool-argument boundary. A case that fails is replayed
-  from the `WINEDBG_MCP_SIM_SEED` it was found under, so a report carries a seed
+  from the `WINEDBG_MCP_FUZZ_SEED` it was found under, so a report carries a seed
   rather than a transcript.
 
 ### Changed

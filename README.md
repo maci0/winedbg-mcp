@@ -14,7 +14,7 @@ suite), the build and the artifact check. The session tests drive
 protocol, so the suite needs no Wine. No test here has been run against a real
 `winedbg`: the debugger is the one thing the fixtures replace, so the suite
 proves the prompt protocol and the tool argument handling, not Wine itself. See
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) records the attack surface, the
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the attack surface, the
 trust boundaries and the mitigations, read off the source rather than off this
 README.
 [`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.

@@ -228,39 +228,32 @@ describe("callTool", () => {
     expect(result.content[0]?.text).toMatch(/between 1 and/);
   });
 
+  /** The timeout the session was handed for one call made with `defaultMs` in force. */
+  async function timeoutSeen(args: Record<string, unknown>, defaultMs: number): Promise<number | undefined> {
+    let seen: number | undefined;
+    await callTool(
+      stubSession({
+        executeCommand: async (_command: string, timeout: number) => {
+          seen = timeout;
+          return "bt";
+        },
+      }),
+      "winedbg_execute",
+      args,
+      defaultMs,
+    );
+    return seen;
+  }
+
   // A deployment that raised its ceiling through WINEDBG_MCP_COMMAND_TIMEOUT_MS
   // must not be handed the built-in one back by a call that simply left the
   // field out, which is the shape every model turn that omits a timeout takes.
   test("a call with no timeout gets the deployment's default, not the constant", async () => {
-    let seen: number | undefined;
-    await callTool(
-      stubSession({
-        executeCommand: async (_command: string, timeout: number) => {
-          seen = timeout;
-          return "bt";
-        },
-      }),
-      "winedbg_execute",
-      { command: "bt" },
-      120000,
-    );
-    expect(seen).toBe(120000);
+    expect(await timeoutSeen({ command: "bt" }, 120000)).toBe(120000);
   });
 
   // An explicit value is the caller's, whatever the deployment set.
   test("an explicit timeout overrides the deployment default", async () => {
-    let seen: number | undefined;
-    await callTool(
-      stubSession({
-        executeCommand: async (_command: string, timeout: number) => {
-          seen = timeout;
-          return "bt";
-        },
-      }),
-      "winedbg_execute",
-      { command: "bt", timeout: 500 },
-      120000,
-    );
-    expect(seen).toBe(500);
+    expect(await timeoutSeen({ command: "bt", timeout: 500 }, 120000)).toBe(500);
   });
 });
