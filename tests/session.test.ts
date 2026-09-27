@@ -30,9 +30,6 @@ const HANG_TIMEOUT_MS = 200;
 // wait itself. Loose enough that a loaded host cannot reach it before the test
 // is done, since nothing here should depend on a stopwatch.
 const NO_REPLY_TIMEOUT_MS = 60_000;
-// The bound for a command whose reply the fixture writes itself, so the
-// timeout is never what ends the test that is exercising the reply path.
-const IN_FLIGHT_TIMEOUT_MS = 60_000;
 // Short enough that the test is quick, and far below the default it overrides.
 const READY_TIMEOUT_MS = 200;
 const SLOW_REPLY_MS = 300;
