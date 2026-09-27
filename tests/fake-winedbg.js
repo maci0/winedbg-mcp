@@ -4,7 +4,9 @@
 // hang (never prompts again), pid (the debuggee pid), "sleep:<ms>" (replies after
 // <ms>), warn (writes to stderr), silent (prompt only), close-stdin (stops
 // reading commands), "noise:<n>" (a reply of n characters), "dribble:<n>" (the
-// same, in pieces small enough to arrive one read at a time), "split:<n>" (n
+// same, in pieces small enough to arrive one read at a time), "utf8:<text>" (that
+// text in UTF-8, one byte per write, so multi-byte characters straddle reads),
+// "astral:<n>" (n emoji, two UTF-16 units each), "split:<n>" (n
 // multi-byte characters, the last one cut across two writes), anything else
 // echoes back.
 // Invoked with "die" as argv[2] it exits before printing a prompt; with "mute"
@@ -13,6 +15,7 @@
 // winedbg does for the program it is launched with.
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 if (process.argv[2] === "die") process.exit(2);
 
@@ -25,11 +28,15 @@ const debuggee =
     ? spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
     : null;
 
+// A command is one write from the caller, but a long one can still be split
+// across reads, and decoding a chunk in isolation turns the tail of a
+// multi-byte character into U+FFFD.
+const decoder = new StringDecoder("utf8");
 let pending = "";
 process.stdin.on("data", (chunk) => {
-  pending += chunk.toString();
-  let nl = pending.indexOf("\n");
-  while (nl !== -1) {
+  pending += decoder.write(chunk);
+  let nl;
+  while ((nl = pending.indexOf("\n")) !== -1) {
     const line = pending.slice(0, nl).trim();
     pending = pending.slice(nl + 1);
     handle(line);
@@ -46,6 +53,48 @@ function handle(line) {
     // A reply far larger than anything the session is willing to buffer.
     process.stdout.write("n".repeat(Number(line.slice("noise:".length))));
     process.stdout.write("Wine-dbg>");
+    return;
+  }
+  if (line.startsWith("astral:")) {
+    // Enough characters from outside the BMP to push a reader past a cap measured
+    // in UTF-16 code units, so the cut it takes has to be rounded to a character
+    // boundary. A reply of nothing but emoji always has an even accumulated
+    // length, and every even cut lands on the high half of a pair, so the
+    // one-unit "|" between pieces flips the parity and puts some cuts on a low
+    // half, which is the case that orphans a surrogate.
+    let remaining = Number(line.slice("astral:".length));
+    const piece = 4096;
+    let written = 0;
+    const writeNext = () => {
+      if (remaining <= 0) {
+        process.stdout.write("Wine-dbg>");
+        return;
+      }
+      const n = Math.min(piece, remaining);
+      remaining -= n;
+      if (written++ % 2 === 1) process.stdout.write("|");
+      process.stdout.write("\u{1F600}".repeat(n));
+      setTimeout(writeNext, 1);
+    };
+    writeNext();
+    return;
+  }
+  if (line.startsWith("utf8:")) {
+    // The reply's bytes go out one at a time, so every multi-byte character
+    // reaches the reader split across two reads, the way a chatty pipe splits
+    // them. A reader that decodes each read on its own returns U+FFFD.
+    const text = Buffer.from(`utf8 reply: ${line.slice("utf8:".length)}`, "utf8");
+    let i = 0;
+    const writeByte = () => {
+      if (i >= text.length) {
+        process.stdout.write("Wine-dbg>");
+        return;
+      }
+      process.stdout.write(text.subarray(i, i + 1));
+      i++;
+      setTimeout(writeByte, 1);
+    };
+    writeByte();
     return;
   }
   if (line.startsWith("dribble:")) {

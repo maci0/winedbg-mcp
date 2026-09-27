@@ -28,6 +28,9 @@ const LATE_REPLY_WAIT_MS = SLOW_REPLY_MS * 3;
 const KILL_WAIT_MS = 1000;
 // Comfortably past MAX_BUFFER_CHARS in session.ts, so the cap has to engage.
 const OVERFLOW_CHARS = 2 * 1024 * 1024;
+// Emoji take two UTF-16 units each, so this is 1.2M units of output against a
+// 1M-unit cap: enough to force the cut, in astral characters rather than ASCII.
+const ASTRAL_CHARS = 600_000;
 
 let session: WinedbgSession | null = null;
 
@@ -247,6 +250,36 @@ describe("executeCommand", () => {
     // The prompt that ended the reply was consumed, not left for the next one.
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   }, 20000);
+
+  test("returns non-ASCII output whose characters straddle reads", async () => {
+    const s = await startedSession();
+    // The fixture writes one byte per write, so every character above U+007F
+    // reaches the session split across two chunks. Decoding a chunk on its own
+    // turns each half into U+FFFD and the reply comes back as mojibake.
+    const out = await s.executeCommand("utf8:naïve café \u{1F600} 日本語");
+    expect(out).toBe("utf8 reply: naïve café \u{1F600} 日本語");
+    expect(out).not.toContain("�");
+  });
+
+  test(
+    "cuts the overflow on a character boundary, not inside a surrogate pair",
+    async () => {
+      const s = await startedSession();
+      const out = await s.executeCommand("astral:" + ASTRAL_CHARS);
+      // A cut landing on the low half of a pair leaves a surrogate unpaired,
+      // which JSON then has to escape and no terminal renders as the character
+      // it was. Iterating code points is what makes an unpaired half visible:
+      // it is a code point of its own, in the surrogate range and nowhere else.
+      const orphans = [...out].filter((codePoint) => {
+        const unit = codePoint.charCodeAt(0);
+        return codePoint.length === 1 && unit >= 0xd800 && unit <= 0xdfff;
+      });
+      expect(orphans.length).toBe(0);
+      expect(out).not.toContain("�");
+      expect(await s.executeCommand("bt")).toBe("ran: bt");
+    },
+    20000
+  );
 
   test("rejects the in-flight command when the debugger exits", async () => {
     const s = await startedSession();

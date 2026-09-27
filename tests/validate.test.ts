@@ -43,6 +43,26 @@ describe("requireStringArray", () => {
     );
     expect(() => requireStringArray(["a".repeat(MAX_ARG_CHARS + 1)], "args")).toThrow(/at most 4096 characters/);
   });
+
+  test("passes a non-ASCII path through, encoded as UTF-8 all the way", () => {
+    // A decomposed name (macOS NFD) is a different byte sequence from the
+    // composed one and is a legal filename, so it has to reach spawn intact.
+    // The escape keeps the form unambiguous: an editor or a formatter that
+    // normalizes the file would otherwise turn the test into its opposite.
+    const nfd = "cafe\u0301.txt";
+    expect(nfd).not.toBe(nfd.normalize("NFC"));
+    const passed = requireStringArray([nfd], "args");
+    expect(passed).toEqual([nfd]);
+    // The argv reaches spawn as the decomposed bytes, not the composed 0xc3 0xa9
+    // a normalizer would fold it to.
+    const nfdBytes = Buffer.concat([Buffer.from("cafe"), Buffer.from([0xcc, 0x81]), Buffer.from(".txt")]);
+    expect(Buffer.from(passed.join(""), "utf8")).toEqual(nfdBytes);
+  });
+
+  test("rejects an unpaired surrogate, which UTF-8 cannot carry", () => {
+    expect(() => requireStringArray(["app\ud800.exe"], "args")).toThrow(/unpaired UTF-16 surrogate/);
+    expect(() => requireStringArray(["app\udc00.exe"], "args")).toThrow(/unpaired UTF-16 surrogate/);
+  });
 });
 
 describe("requireString", () => {
@@ -77,6 +97,12 @@ describe("requireString", () => {
   test("bounds the command length", () => {
     expect(requireString("a".repeat(MAX_COMMAND_CHARS), "command")).toHaveLength(MAX_COMMAND_CHARS);
     expect(() => requireString("a".repeat(MAX_COMMAND_CHARS + 1), "command")).toThrow(/at most 4096 characters/);
+  });
+
+  test("rejects an unpaired surrogate, which UTF-8 cannot carry", () => {
+    expect(() => requireString("break \ud800", "command")).toThrow(/unpaired UTF-16 surrogate/);
+    // A matched pair is one character above the BMP and encodes normally.
+    expect(requireString("break \u{1F600}", "command")).toBe("break \u{1F600}");
   });
 });
 

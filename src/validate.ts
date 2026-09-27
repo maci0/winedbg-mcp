@@ -15,6 +15,22 @@ export const MAX_COMMAND_CHARS = 4096;
 // a caller filling the process table, not a debugging session.
 export const MAX_START_ARGS = 64;
 
+// JSON lets a string carry a lone surrogate, an unpaired half of a UTF-16 pair.
+// UTF-8 has no encoding for one, so the encoder that writes a command or an
+// argv silently substitutes U+FFFD and the debugger opens a different path than
+// the client named, with nothing anywhere reporting the substitution.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function requireEncodable(value: string, field: string): string {
+  if (LONE_SURROGATE.test(value)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `${field} contains an unpaired UTF-16 surrogate, which no UTF-8 byte sequence can carry`
+    );
+  }
+  return value;
+}
+
 export function requireStringArray(value: unknown, field: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
@@ -41,7 +57,7 @@ export function requireStringArray(value: unknown, field: string): string[] {
         `${field}[${index}] contains a NUL byte, which no argument can carry`
       );
     }
-    items.push(item);
+    items.push(requireEncodable(item, field));
   }
   return items;
 }
@@ -59,7 +75,7 @@ export function requireString(value: unknown, field: string): string {
       `${field} must be a single line: no line break (\\n, \\r, \\v, \\f, U+0085, U+2028, U+2029) and no NUL`
     );
   }
-  return value;
+  return requireEncodable(value, field);
 }
 
 export function optionalTimeout(value: unknown): number {

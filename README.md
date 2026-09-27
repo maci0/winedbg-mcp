@@ -142,12 +142,14 @@ through the tools:
 A single reply is buffered up to 1M UTF-16 code units of decoded text, so a
 BMP character costs one unit and an astral one costs two, whatever the target
 prints. The child's output is decoded as UTF-8, and a byte sequence that is not
-valid UTF-8 becomes U+FFFD rather than being passed through. Past the cap the
-oldest output is dropped to keep the last three quarters, and the reply then
-opens with `[N characters of earlier output dropped: buffer limit]`, counting
-in the same code units. Truncation counts code units, so it can cut between the
-two halves of an astral character; a reply cut that way starts with an
-unpaired surrogate for that character.
+valid UTF-8 becomes U+FFFD rather than being passed through. A multi-byte
+character split across two reads of the pipe decodes as the one character it
+is, not as two replacement characters. Past the cap the oldest output is
+dropped to keep the last three quarters, and the reply then opens with
+`[N characters of earlier output dropped: buffer limit]`, counting code points
+rather than the units the cap is measured in. The cut moves back off the low
+half of a surrogate pair, so it never lands inside one and no reply starts
+with an unpaired surrogate.
 
 ## Usage Example
 

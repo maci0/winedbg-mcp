@@ -28,6 +28,13 @@ const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
 // the same way a second line would.
 export const LINE_BREAKS = /[\n\r\v\f\0\u0085\u2028\u2029]/;
 
+/** Code points, which is what a reader counts, not the UTF-16 units String#length reports. */
+function countCodePoints(text: string): number {
+  let count = 0;
+  for (const _ of text) count++;
+  return count;
+}
+
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
   // A signalled child has no exit code, and reporting the absent one reads as
   // "exited with code null" rather than as the signal that ended it.
@@ -302,10 +309,24 @@ export class WinedbgSession {
 
   /** Bound the buffer, keeping the tail: the prompt that ends a reply is there. */
   private trimBuffer() {
+    // The cap is a memory bound, so it counts UTF-16 code units, what String#length
+    // reports. droppedChars counts code points instead, because that is the unit
+    // the notice names them in.
     if (this.buffer.length <= MAX_BUFFER_CHARS) return;
-    const dropped = this.buffer.length - BUFFER_RETAIN_CHARS;
-    this.dropBufferPrefix(dropped);
-    this.droppedChars += dropped;
+    const cut = this.charCountToCodePointBoundary(this.buffer.length - BUFFER_RETAIN_CHARS);
+    this.droppedChars += countCodePoints(this.buffer.substring(0, cut));
+    this.dropBufferPrefix(cut);
+  }
+
+  /**
+   * Move a cut back off the low half of a surrogate pair. Characters outside the
+   * BMP take two code units, and a cut between the halves leaves a lone surrogate
+   * that no JSON encoder or terminal will render as the character it was.
+   */
+  private charCountToCodePointBoundary(count: number) {
+    if (count <= 0 || count >= this.buffer.length) return count;
+    const unit = this.buffer.charCodeAt(count);
+    return unit >= 0xdc00 && unit <= 0xdfff ? count - 1 : count;
   }
 
   private clearBuffer() {
