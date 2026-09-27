@@ -37,7 +37,6 @@ without a build step, use `bun run dev` (`bun run start` runs the built file).
 
 To use this with an MCP client (like Claude Desktop or Gemini), configure the MCP server to point to the built `index.js`.
 
-Example for an MCP client configuration:
 ```json
 {
   "mcpServers": {
@@ -81,8 +80,6 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 ```
 
 ## Tools Available
-
-This server provides the following tools:
 
 - **`winedbg_start`**: Start `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works, such as the program to launch (e.g. `{"args": ["myapp.exe"]}`).
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
