@@ -19,3 +19,8 @@ export const MAX_READY_TIMEOUT_MS = 600000;
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 export const DEFAULT_LOG_LEVEL: LogLevel = "info";
+
+// The names this server's own configuration is read from. A misspelled one is
+// refused rather than ignored, and nothing under the prefix is forwarded to the
+// debugger: the WINE* family a wineprefix needs would otherwise sweep it in.
+export const CONFIG_VAR_PREFIX = "WINEDBG_MCP_";

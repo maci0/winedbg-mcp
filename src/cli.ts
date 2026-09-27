@@ -17,6 +17,12 @@ Environment:
   WINEDBG_MCP_READY_TIMEOUT_MS  Milliseconds to wait for the first winedbg
                                 prompt, 1 to 600000. Default: 10000
   WINEDBG_MCP_LOG_LEVEL          debug, info, warn or error. Default: info
+  WINEDBG_MCP_PASSTHROUGH_ENV   Comma-separated extra variable names to
+                                forward to winedbg. Default: none
+
+winedbg is started with an allowlisted environment, not the one it was
+launched from, so credentials in this environment do not reach the program
+under debug. Name any variable it does need here.
 
 Example MCP client configuration:
   {

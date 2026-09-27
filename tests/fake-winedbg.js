@@ -4,7 +4,8 @@
 // hang (never prompts again), pid (the debuggee pid), selfpid (its own pid),
 // "sleep:<ms>" (replies after <ms>), warn (writes to stderr), silent (prompt
 // only), close-stdin (stops
-// reading commands), "noise:<n>" (a reply of n characters), "dribble:<n>" (the
+// reading commands), "env:<name>" (that variable's value in this process, or
+// <unset>), "noise:<n>" (a reply of n characters), "dribble:<n>" (the
 // same, in pieces small enough to arrive one read at a time), utf8 (a non-ASCII
 // reply written one byte at a time, so every character spans two reads),
 // "utf8:<text>" (that text in UTF-8, one byte per write), "astral:<n>" (n emoji,
@@ -151,6 +152,15 @@ function handle(line) {
     // A reply that arrives long after the caller gave up is how a real debugger
     // desynchronises the stream: the output belongs to a command nobody awaits.
     setTimeout(() => reply(line), Number(line.slice("sleep:".length)));
+    return;
+  }
+  if (line.startsWith("env:")) {
+    // The value the child actually inherited, so a test can assert on what a
+    // program under debug would read rather than on what was asked for.
+    const name = line.slice("env:".length);
+    const value = process.env[name];
+    process.stdout.write(`${name}=${value === undefined ? "<unset>" : value}\n`);
+    process.stdout.write("Wine-dbg>");
     return;
   }
   switch (line) {

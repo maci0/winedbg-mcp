@@ -6,7 +6,14 @@
 // plain object. process.env is never touched.
 
 import { describe, expect, test } from "bun:test";
-import { BINARY_VAR, describeConfig, LOG_LEVEL_VAR, loadConfig, READY_TIMEOUT_VAR } from "../src/config.js";
+import {
+  BINARY_VAR,
+  describeConfig,
+  LOG_LEVEL_VAR,
+  loadConfig,
+  PASSTHROUGH_VAR,
+  READY_TIMEOUT_VAR,
+} from "../src/config.js";
 import { DEFAULT_BINARY, DEFAULT_LOG_LEVEL, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/constants.js";
 
 describe("loadConfig", () => {
@@ -15,16 +22,23 @@ describe("loadConfig", () => {
       binary: DEFAULT_BINARY,
       readyTimeoutMs: DEFAULT_READY_TIMEOUT_MS,
       logLevel: DEFAULT_LOG_LEVEL,
+      passthroughEnv: [],
     });
   });
 
-  test("all three variables override", () => {
+  test("every variable overrides", () => {
     const config = loadConfig({
       [BINARY_VAR]: "/opt/wine/bin/winedbg",
       [READY_TIMEOUT_VAR]: "45000",
       [LOG_LEVEL_VAR]: "debug",
+      [PASSTHROUGH_VAR]: "COREPACK_ENABLE_STRICT",
     });
-    expect(config).toEqual({ binary: "/opt/wine/bin/winedbg", readyTimeoutMs: 45000, logLevel: "debug" });
+    expect(config).toEqual({
+      binary: "/opt/wine/bin/winedbg",
+      readyTimeoutMs: 45000,
+      logLevel: "debug",
+      passthroughEnv: ["COREPACK_ENABLE_STRICT"],
+    });
   });
 
   test("a log level is matched whatever its case or padding", () => {
@@ -73,9 +87,7 @@ describe("loadConfig", () => {
   // exclusive end fails here rather than on a deployment's cold start.
   test("the range ends are inside it", () => {
     expect(loadConfig({ [READY_TIMEOUT_VAR]: "1" }).readyTimeoutMs).toBe(1);
-    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(
-      MAX_READY_TIMEOUT_MS
-    );
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(MAX_READY_TIMEOUT_MS);
   });
 
   test("surrounding whitespace is a typo-free formatting habit, not a value", () => {
@@ -87,5 +99,24 @@ describe("loadConfig", () => {
     expect(line).toContain(`${BINARY_VAR}=/opt/wine/bin/winedbg`);
     expect(line).toContain(`${READY_TIMEOUT_VAR}=${DEFAULT_READY_TIMEOUT_MS}`);
     expect(line).toContain(`${LOG_LEVEL_VAR}=${DEFAULT_LOG_LEVEL}`);
+    expect(line).toContain(`${PASSTHROUGH_VAR}=`);
+  });
+});
+
+describe("passthrough names", () => {
+  test("a list is split on commas and trimmed", () => {
+    expect(loadConfig({ [PASSTHROUGH_VAR]: " ONE , TWO " }).passthroughEnv).toEqual(["ONE", "TWO"]);
+  });
+
+  test("a name no environment could hold is refused rather than forwarded as nothing", () => {
+    for (const raw of ["ONE;TWO", "1TOKEN", "ONE=1", "TWO=TWO=2", "A B"]) {
+      expect(() => loadConfig({ [PASSTHROUGH_VAR]: raw })).toThrow(new RegExp(PASSTHROUGH_VAR));
+    }
+  });
+
+  test("set-to-empty and a repeat are refused, both naming the variable", () => {
+    expect(() => loadConfig({ [PASSTHROUGH_VAR]: "" })).toThrow(new RegExp(PASSTHROUGH_VAR));
+    expect(() => loadConfig({ [PASSTHROUGH_VAR]: "  " })).toThrow(new RegExp(PASSTHROUGH_VAR));
+    expect(() => loadConfig({ [PASSTHROUGH_VAR]: "ONE,ONE" })).toThrow(/ONE/);
   });
 });

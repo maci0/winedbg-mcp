@@ -14,7 +14,7 @@ function collecting(level: "debug" | "info" | "warn" | "error") {
   const log = createLogger(
     level,
     (line) => lines.push(line),
-    () => new Date("2026-09-27T10:00:00.000Z")
+    () => new Date("2026-09-27T10:00:00.000Z"),
   );
   return { log, lines, records: () => lines.map((line) => JSON.parse(line) as LogFields) };
 }
@@ -61,7 +61,7 @@ describe("createLogger", () => {
     log.info("i");
     log.warn("w");
     log.error("e");
-    expect(records().map((r) => r.level)).toEqual(["debug", "info", "warn", "error"]);
+    expect(records().map((r) => r["level"])).toEqual(["debug", "info", "warn", "error"]);
   });
 
   test("a line with no fields still has the three fields every line has", () => {

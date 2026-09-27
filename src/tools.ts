@@ -1,4 +1,4 @@
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { ErrorCode, McpError, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
 import type { WinedbgSession } from "./session.js";
 import { optionalTimeout, requireString, requireStringArray } from "./validate.js";
@@ -12,8 +12,10 @@ export type ToolResult = {
 };
 
 // The tool list is fixed, so it is built once instead of on every
-// tools/list request.
-export const TOOLS = [
+// tools/list request. The SDK's Tool type widens `inputSchema` to the shape
+// tools/list advertises, so a tool that omits `required` stays addressable
+// through the same type as one that declares it.
+export const TOOLS: Tool[] = [
   {
     name: "winedbg_start",
     description:
@@ -56,7 +58,7 @@ export const TOOLS = [
       properties: {},
     },
   },
-] as const;
+];
 
 function text(text: string): ToolResult {
   return { content: [{ type: "text", text }] };

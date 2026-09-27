@@ -25,9 +25,9 @@ describe("tool list", () => {
   // fails at the session instead of at the boundary. Pin the advertised names.
   test("advertises the argument names the handler reads", () => {
     const byName = new Map(TOOLS.map((tool) => [tool.name, tool.inputSchema]));
-    expect(Object.keys(byName.get("winedbg_start")!.properties)).toEqual(["args"]);
-    expect(Object.keys(byName.get("winedbg_execute")!.properties)).toEqual(["command", "timeout"]);
-    expect(Object.keys(byName.get("winedbg_stop")!.properties)).toEqual([]);
+    expect(Object.keys(byName.get("winedbg_start")!.properties!)).toEqual(["args"]);
+    expect(Object.keys(byName.get("winedbg_execute")!.properties!)).toEqual(["command", "timeout"]);
+    expect(Object.keys(byName.get("winedbg_stop")!.properties!)).toEqual([]);
   });
 
   // Without this, a model turn that omits the command reaches the debugger as an
@@ -103,7 +103,7 @@ describe("callTool", () => {
         },
       }),
       "winedbg_stop",
-      undefined
+      undefined,
     );
     expect(stops).toBe(1);
     expect(result.isError).toBeUndefined();
@@ -118,7 +118,7 @@ describe("callTool", () => {
         },
       }),
       "winedbg_stop",
-      undefined
+      undefined,
     );
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toBe("Error: winedbg is not running. Please start it first.");

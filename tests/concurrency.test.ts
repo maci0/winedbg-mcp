@@ -34,7 +34,7 @@ async function startedSession(): Promise<WinedbgSession> {
 }
 
 function textOf(result: ToolResult): string {
-  return result.content[0].text;
+  return result.content[0]!.text;
 }
 
 function isRefusal(result: ToolResult): boolean {
@@ -76,9 +76,9 @@ describe("concurrent tool calls", () => {
     const refused = outcomes.filter(isRefusal);
     expect(answered).toHaveLength(1);
     expect(refused).toHaveLength(1);
-    expect(textOf(refused[0])).toMatch(/already in progress/);
+    expect(textOf(refused[0]!)).toMatch(/already in progress/);
     // The winner's output names its own command and nothing else.
-    const reply = textOf(answered[0]);
+    const reply = textOf(answered[0]!);
     expect(["ran: bt", "ran: info reg"]).toContain(reply);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
@@ -122,7 +122,7 @@ describe("concurrent tool calls", () => {
     for (let round = 0; round < ROUNDS; round++) {
       const commands = Array.from({ length: CALLS_PER_ROUND }, (_, index) => `cmd${round}-${index}`);
       const results = await Promise.all(
-        commands.map((command) => callTool(s, "winedbg_execute", { command, timeout: REPLY_TIMEOUT_MS }))
+        commands.map((command) => callTool(s, "winedbg_execute", { command, timeout: REPLY_TIMEOUT_MS })),
       );
       for (const [index, result] of results.entries()) {
         const own = `ran: ${commands[index]}`;

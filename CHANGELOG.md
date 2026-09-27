@@ -11,6 +11,10 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 
 ### Added
 
+- `WINEDBG_MCP_PASSTHROUGH_ENV`: a comma-separated list of variable names to
+  forward to `winedbg` beside the ones it needs to run. An entry that is not a
+  variable name, a repeat and a set-but-empty value all stop the server at
+  startup with the variable named, like the other configuration.
 - Structured logging to stderr: one JSON object per line, with a `time`, a
   `level`, a fixed `message` and flat named fields. Every tool call logs its
   start, its outcome and how long it took under one `callId`, and a session logs
@@ -27,6 +31,22 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 
 ### Changed
 
+- `winedbg` is started with an allowlisted environment instead of the one the
+  server was launched with. The child inherited the launcher's whole
+  environment, and `winedbg` hands that to the program under debug, so a target
+  that printed its own environment returned every credential the MCP client
+  started the server with on the same pipe as its ordinary output, framed as a
+  debugger reply. What a debugger, a wineprefix and a program under Wine read is
+  forwarded (`PATH`, `HOME`, `DISPLAY`, the `WINE*`, `XDG_*`, `LC_*`, `SDL_*`,
+  `MESA_*` and graphics-driver families, and the Windows-path variables); the
+  rest stays in the server. A deployment that needs one more names it in
+  `WINEDBG_MCP_PASSTHROUGH_ENV`. This is the one behavior change in this release
+  that can affect an existing deployment: a variable winedbg read and the
+  allowlist does not name is now withheld, and a session that depended on it
+  needs the name added.
+- The tool list is typed as the SDK's `Tool` rather than as a `const` literal,
+  so a tool that declares no `required` stays addressable through the same type
+  as one that does. `bun run typecheck` failed on the tests before this.
 - Declared dependency floors now match the versions the test suite runs
   against: `@modelcontextprotocol/sdk` `^1.30.0`, `@types/node` `^22.20.1`,
   `typescript` `^5.9.3`. A `bun update` can no longer land on a release the
