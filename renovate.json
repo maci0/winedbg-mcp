@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "schedule:weekly"],
+  "packageRules": [
+    {
+      "description": "The SDK's HTTP transports (express, hono, cors, express-rate-limit) are transitive and this server speaks only stdio, so they arrive and leave with the SDK. One PR per range keeps that from filling the queue.",
+      "groupName": "mcp-sdk",
+      "matchPackageNames": ["@modelcontextprotocol/sdk"],
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "groupName": "typescript",
+      "matchPackageNames": ["typescript"]
+    },
+    {
+      "groupName": "tooling",
+      "matchPackageNames": ["@biomejs/biome", "@types/*"]
+    }
+  ]
+}
