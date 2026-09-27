@@ -80,7 +80,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 // tool call its params and not the JSON-RPC envelope, so the client's request id
 // never reaches this process. A per-process counter stands in for it: one number
 // that ties the start, the failure and the duration of one call together in the
-// log.
+// log, and, through runWithCallId, the session lines that call produced, so a
+// command that timed out is found under the call that asked for it.
 let callCounter = 0;
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {

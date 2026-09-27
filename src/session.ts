@@ -1,6 +1,6 @@
 import { BINARY_VAR } from "./config.js";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
-import { type Logger, stderrLogger } from "./logger.js";
+import { callFields, type Logger, stderrLogger } from "./logger.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
 import { nodeRuntime } from "./runtime.js";
 
@@ -278,6 +278,7 @@ export class WinedbgSession {
       // rather than thrown: every other start failure arrives that way, and a
       // caller with only a .catch() on the result would miss this.
       this.log.error("winedbg could not be spawned", {
+        ...callFields(),
         binary: this.binary,
         args: JSON.stringify(args),
         error: error instanceof Error ? error.message : String(error),
@@ -291,6 +292,7 @@ export class WinedbgSession {
     this.process = child;
     const startedAt = this.runtime.clock.now();
     this.log.info("winedbg spawned, waiting for its first prompt", {
+      ...callFields(),
       binary: this.binary,
       args: JSON.stringify(args),
       pid: child.pid ?? null,
@@ -335,6 +337,7 @@ export class WinedbgSession {
         this.readyTimer = null;
         this.terminate(child);
         this.log.error("winedbg printed no first prompt before the ready timeout", {
+          ...callFields(),
           binary: this.binary,
           pid: child.pid ?? null,
           readyTimeoutMs: this.readyTimeoutMs,
@@ -355,6 +358,7 @@ export class WinedbgSession {
           this.initReject = null;
           this.clearReadyTimer();
           this.log.info("winedbg is at its first prompt", {
+            ...callFields(),
             pid: child.pid ?? null,
             readyMs: this.runtime.clock.now() - startedAt,
           });
@@ -417,6 +421,7 @@ export class WinedbgSession {
               ? error.message
               : `winedbg failed while running ${JSON.stringify(this.currentCommand)}: ${error.message}`;
         this.log.error("winedbg process error", {
+          ...callFields(),
           pid: child.pid ?? null,
           command: this.currentCommand,
           error: error.message,
@@ -750,7 +755,7 @@ export class WinedbgSession {
         },
       };
       this.currentCommand = command;
-      this.log.debug("winedbg command sent", { command, timeoutMs });
+      this.log.debug("winedbg command sent", { ...callFields(), command, timeoutMs });
 
       // Anything still buffered predates this command. Owed prompts are counted
       // separately, so dropping the text here cannot lose a boundary.
@@ -762,6 +767,7 @@ export class WinedbgSession {
         // still owe a prompt. Release the slot instead of leaving every later
         // command refused as in progress.
         this.log.error("winedbg command could not be written", {
+          ...callFields(),
           command,
           error: error instanceof Error ? error.message : String(error),
         });

@@ -4,10 +4,12 @@
 //
 // Method: createLogger takes the write function and the clock, so every case
 // collects lines in an array and asserts on the parsed record. No process
-// stream is touched.
+// stream is touched. The correlation cases drive runWithCallId and read back
+// the callId the same way, since the field is what joins a tool call to the
+// session lines it produced.
 
 import { describe, expect, test } from "bun:test";
-import { createLogger, type LogFields } from "../src/logger.js";
+import { callFields, createLogger, type LogFields, runWithCallId } from "../src/logger.js";
 
 const NOW = "2026-09-27T10:00:00.000Z";
 
@@ -74,5 +76,55 @@ describe("createLogger", () => {
       level: "info",
       message: "winedbg stopped",
     });
+  });
+});
+
+describe("call correlation", () => {
+  test("a line written inside a call carries that call's id", () => {
+    const { log, records } = collecting("info");
+    runWithCallId("call-3", () => {
+      log.info("tool call started", { callId: "call-3", tool: "winedbg_execute" });
+      // A session line, written by whatever the call reached: it has to name the
+      // same call or a timed-out command cannot be joined to the call that sent
+      // it.
+      log.error("winedbg command timed out", { ...callFields(), command: "bt" });
+    });
+    expect(records().map((r) => r["callId"])).toEqual(["call-3", "call-3"]);
+  });
+
+  test("the id survives the await between a start and its first prompt", async () => {
+    const { log, records } = collecting("info");
+    await runWithCallId("call-4", async () => {
+      await Promise.resolve();
+      log.info("winedbg is at its first prompt", { ...callFields(), readyMs: 12 });
+    });
+    expect(records()[0]?.["callId"]).toBe("call-4");
+  });
+
+  test("a line written outside a call names none", () => {
+    // Startup, shutdown and a signal belong to the process, not to a call that
+    // has already answered: a callId there points at the wrong request.
+    const { log, records } = collecting("info");
+    log.info("winedbg MCP server running on stdio", { version: "1.0.0" });
+    expect(callFields()).toEqual({});
+    expect(records()[0]).not.toHaveProperty("callId");
+  });
+
+  test("calls in flight side by side do not share an id", async () => {
+    const { log, records } = collecting("info");
+    await Promise.all([
+      runWithCallId("call-1", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        log.info("winedbg command sent", { ...callFields(), command: "bt" });
+      }),
+      runWithCallId("call-2", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        log.info("winedbg command sent", { ...callFields(), command: "info proc" });
+      }),
+    ]);
+    expect(records().map((r) => [r["callId"], r["command"]])).toEqual([
+      ["call-2", "info proc"],
+      ["call-1", "bt"],
+    ]);
   });
 });
