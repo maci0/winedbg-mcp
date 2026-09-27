@@ -85,8 +85,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools: TOOLS };
 });
 
-function textResult(text: string) {
-  return { content: [{ type: "text" as const, text }] };
+/** The single-content-block shape every tool here returns, success or error. */
+function textResult(text: string, isError = false) {
+  return { content: [{ type: "text" as const, text }], ...(isError ? { isError: true } : {}) };
 }
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -121,7 +122,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // result marked isError would report it as a successful call.
     if (error instanceof McpError && error.code === ErrorCode.MethodNotFound) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    return { ...textResult(`Error: ${message}`), isError: true };
+    return textResult(`Error: ${message}`, true);
   }
 });
 

@@ -7,10 +7,19 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./session.js
 
 export function requireStringArray(value: unknown, field: string): string[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+  if (!Array.isArray(value)) {
     throw new McpError(ErrorCode.InvalidParams, `${field} must be an array of strings`);
   }
-  return value;
+  // Narrowed item by item rather than asserted: Array.isArray only proves the
+  // array, not its elements, and this list goes straight to spawn.
+  const items: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") {
+      throw new McpError(ErrorCode.InvalidParams, `${field} must be an array of strings`);
+    }
+    items.push(item);
+  }
+  return items;
 }
 
 export function requireString(value: unknown, field: string): string {

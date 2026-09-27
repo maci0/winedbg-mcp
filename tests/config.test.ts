@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { BINARY_VAR, READY_TIMEOUT_VAR, describeConfig, loadConfig } from "../src/config.js";
-import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/session.js";
+import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/session.js";
 
 describe("loadConfig", () => {
   test("an empty environment gives the documented defaults", () => {
@@ -50,11 +50,11 @@ describe("loadConfig", () => {
 
   test("a ready timeout outside the range is refused", () => {
     expect(() => loadConfig({ [READY_TIMEOUT_VAR]: "0" })).toThrow(new RegExp(READY_TIMEOUT_VAR));
-    expect(() => loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_COMMAND_TIMEOUT_MS + 1) })).toThrow(
+    expect(() => loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS + 1) })).toThrow(
       new RegExp(READY_TIMEOUT_VAR)
     );
-    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_COMMAND_TIMEOUT_MS) }).readyTimeoutMs).toBe(
-      MAX_COMMAND_TIMEOUT_MS
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(
+      MAX_READY_TIMEOUT_MS
     );
   });
 

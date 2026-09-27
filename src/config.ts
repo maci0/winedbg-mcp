@@ -1,4 +1,4 @@
-import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./session.js";
+import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "./session.js";
 
 // The only deployment knobs. An MCP client launches this server with no argv it
 // controls beyond the script path, so env is the one place a deployment can say
@@ -58,9 +58,9 @@ function parseReadyTimeout(raw: string | undefined): number {
   // Number() accepts "", " " and "0x10"; require plain digits so a typo is an
   // error rather than a surprising value.
   const value = /^[0-9]+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
-  if (!Number.isFinite(value) || value <= 0 || value > MAX_COMMAND_TIMEOUT_MS) {
+  if (!Number.isFinite(value) || value <= 0 || value > MAX_READY_TIMEOUT_MS) {
     throw new Error(
-      `${READY_TIMEOUT_VAR} must be a whole number of milliseconds between 1 and ${MAX_COMMAND_TIMEOUT_MS}, got "${raw}"`
+      `${READY_TIMEOUT_VAR} must be a whole number of milliseconds between 1 and ${MAX_READY_TIMEOUT_MS}, got "${raw}"`
     );
   }
   return value;

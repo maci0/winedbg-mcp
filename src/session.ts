@@ -7,6 +7,10 @@ export const DEFAULT_BINARY = "winedbg";
 export const DEFAULT_READY_TIMEOUT_MS = 10000;
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30000;
 export const MAX_COMMAND_TIMEOUT_MS = 600000;
+// A separate limit from MAX_COMMAND_TIMEOUT_MS even at the same value: the two
+// bound unrelated waits, and raising the command ceiling must not silently
+// raise the first-prompt wait.
+export const MAX_READY_TIMEOUT_MS = 600000;
 // A debuggee writing to stdout produces output no prompt ever terminates, so the
 // buffer needs a ceiling that does not depend on the debugger cooperating.
 const MAX_BUFFER_CHARS = 1024 * 1024;
@@ -78,7 +82,7 @@ export class WinedbgSession {
     // waiting on a command, so the stream's own error carries nothing new.
     child.stdin?.on("error", () => {});
 
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       // Events from an already-replaced child (a kill lands after the next
       // start) must not touch the current session's state.
       const isCurrent = () => this.process === child;
@@ -122,24 +126,19 @@ export class WinedbgSession {
         this.process = null;
         this.isReady = false;
         this.awaitingAbandonedPrompt = false;
-        const failStart = !wasReady && this.initReject !== null;
-        if (failStart) this.initReject = null;
         this.clearReadyTimer();
-        const reason = describeExit(code, signal);
         // A child that dies before printing a prompt fails start now, rather
         // than hanging until the ready timeout.
-        if (failStart) reject(new Error(reason));
-        if (this.currentPromise) {
-          this.currentPromise.reject(new Error(reason));
-          this.releaseCurrent();
-        }
+        const initReject = wasReady ? null : this.initReject;
+        this.initReject = null;
+        this.failChild(new Error(describeExit(code, signal)), initReject);
       });
 
       child.on("error", (error) => {
         if (!isCurrent()) return;
-        const failStart = !this.isReady && this.initReject !== null;
-        if (failStart) this.initReject = null;
         this.clearReadyTimer();
+        const initReject = this.isReady ? null : this.initReject;
+        this.initReject = null;
         // A child that never got a pid never ran, so it is not a session: leaving
         // it set would refuse every later start with "already running" until the
         // close event caught up. A child that did run keeps its handle, so stop()
@@ -149,13 +148,22 @@ export class WinedbgSession {
           this.isReady = false;
           this.awaitingAbandonedPrompt = false;
         }
-        if (failStart) reject(error);
-        if (this.currentPromise) {
-          this.currentPromise.reject(error);
-          this.releaseCurrent();
-        }
+        this.failChild(error, initReject);
       });
     });
+  }
+
+  /**
+   * A child that died (or never ran) settles everything waiting on it: a start
+   * that has not reached a prompt, and a command in flight. Both go out with
+   * the same reason, and the command slot is released either way.
+   */
+  private failChild(reason: Error, initReject: ((err: Error) => void) | null) {
+    if (initReject !== null) initReject(reason);
+    if (this.currentPromise) {
+      this.currentPromise.reject(reason);
+      this.releaseCurrent();
+    }
   }
 
   private clearReadyTimer() {
