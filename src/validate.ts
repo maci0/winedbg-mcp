@@ -1,19 +1,17 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
+import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  MAX_ARG_CHARS,
+  MAX_COMMAND_CHARS,
+  MAX_COMMAND_TIMEOUT_MS,
+  MAX_START_ARGS,
+} from "./constants.js";
 import { LINE_BREAKS } from "./session.js";
 
 // Tool arguments arrive as untyped JSON and the SDK does not enforce the
 // inputSchema it advertises, so these are the trust boundary for everything
-// behind them, including the argv handed to spawn.
-
-// No debugger command is anywhere near this long, and the value is copied into
-// an argv entry and into a pipe write, so an unbounded one is a caller's memory
-// and the child's command line, for no debugging value.
-export const MAX_ARG_CHARS = 4096;
-export const MAX_COMMAND_CHARS = 4096;
-// winedbg takes a program path and a handful of switches. An array this long is
-// a caller filling the process table, not a debugging session.
-export const MAX_START_ARGS = 64;
+// behind them, including the argv handed to spawn. The sizes are named in
+// constants.ts, where the tool schemas state the same ones.
 
 // JSON lets a string carry a lone surrogate, an unpaired half of a UTF-16 pair.
 // UTF-8 has no encoding for one, so the encoder that writes a command or an

@@ -35,6 +35,12 @@ export interface DebuggerChild {
   /** Signal the debugger and everything it started. */
   killTree(signal: NodeJS.Signals): void;
   /**
+   * Whether anything the child led is still running. Its own exit says nothing
+   * about the debuggee it started: that one is reparented the moment the
+   * debugger dies and reports no event when it goes.
+   */
+  treeAlive(): boolean;
+  /**
    * Drop this side of the command pipes. A process keeps its end open until it
    * exits, and this process holds a descriptor for each until then, so a
    * debugger that has been signalled and outlives the signal keeps three
@@ -145,6 +151,22 @@ class NodeDebuggerChild implements DebuggerChild {
     } catch {
       // No such group: fall back to the debugger itself.
       this.child.kill(signal);
+    }
+  }
+
+  treeAlive(): boolean {
+    const pid = this.child.pid;
+    if (pid === undefined) return false;
+    try {
+      // Signal 0 tests for the process group without delivering anything. The
+      // group outlives its leader, which is the point: the debuggee stays in it
+      // after the debugger is gone.
+      process.kill(-pid, 0);
+      return true;
+    } catch (error) {
+      // EPERM is the group still being there and this process not being allowed
+      // to signal it, which is alive all the same. ESRCH is the group gone.
+      return (error as NodeJS.ErrnoException).code === "EPERM";
     }
   }
 

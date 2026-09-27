@@ -34,7 +34,17 @@ async function startedSession(): Promise<WinedbgSession> {
 }
 
 function textOf(result: ToolResult): string {
-  return result.content[0].text;
+  const first = result.content.at(0);
+  if (!first) throw new Error("tool result carried no text");
+  return first.text;
+}
+
+/** The one element of a group the assertions above have counted. */
+function only(results: ToolResult[]): ToolResult {
+  if (results.length !== 1) throw new Error(`expected exactly one result, got ${results.length}`);
+  const [result] = results;
+  if (!result) throw new Error("no result");
+  return result;
 }
 
 function isRefusal(result: ToolResult): boolean {
@@ -59,7 +69,8 @@ describe("concurrent tool calls", () => {
     const outcomes = [first, second];
     expect(outcomes.filter((result) => !isRefusal(result))).toHaveLength(1);
     const refused = outcomes.find(isRefusal);
-    expect(textOf(refused!)).toMatch(/already running/);
+    if (!refused) throw new Error("neither racing start was refused");
+    expect(textOf(refused)).toMatch(/already running/);
     expect(s.isRunning()).toBe(true);
     expect(textOf(await callTool(s, "winedbg_execute", { command: "bt" }))).toBe("ran: bt");
   });
@@ -76,9 +87,9 @@ describe("concurrent tool calls", () => {
     const refused = outcomes.filter(isRefusal);
     expect(answered).toHaveLength(1);
     expect(refused).toHaveLength(1);
-    expect(textOf(refused[0])).toMatch(/already in progress/);
+    expect(textOf(only(refused))).toMatch(/already in progress/);
     // The winner's output names its own command and nothing else.
-    const reply = textOf(answered[0]);
+    const reply = textOf(only(answered));
     expect(["ran: bt", "ran: info reg"]).toContain(reply);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
@@ -122,7 +133,7 @@ describe("concurrent tool calls", () => {
     for (let round = 0; round < ROUNDS; round++) {
       const commands = Array.from({ length: CALLS_PER_ROUND }, (_, index) => `cmd${round}-${index}`);
       const results = await Promise.all(
-        commands.map((command) => callTool(s, "winedbg_execute", { command, timeout: REPLY_TIMEOUT_MS }))
+        commands.map((command) => callTool(s, "winedbg_execute", { command, timeout: REPLY_TIMEOUT_MS })),
       );
       for (const [index, result] of results.entries()) {
         const own = `ran: ${commands[index]}`;

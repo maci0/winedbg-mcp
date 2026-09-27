@@ -3,8 +3,8 @@ import {
   DEFAULT_LOG_LEVEL,
   DEFAULT_READY_TIMEOUT_MS,
   LOG_LEVELS,
-  MAX_READY_TIMEOUT_MS,
   type LogLevel,
+  MAX_READY_TIMEOUT_MS,
 } from "./constants.js";
 
 // The only deployment knobs. An MCP client launches this server with no argv it

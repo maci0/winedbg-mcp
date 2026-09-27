@@ -1,5 +1,11 @@
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
+import { ErrorCode, McpError, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  MAX_ARG_CHARS,
+  MAX_COMMAND_CHARS,
+  MAX_COMMAND_TIMEOUT_MS,
+  MAX_START_ARGS,
+} from "./constants.js";
 import type { WinedbgSession } from "./session.js";
 import { optionalTimeout, requireString, requireStringArray } from "./validate.js";
 
@@ -11,9 +17,18 @@ export type ToolResult = {
   isError?: true;
 };
 
-// The tool list is fixed, so it is built once instead of on every
-// tools/list request.
-export const TOOLS = [
+/**
+ * The tool list is fixed, so it is built once instead of on every tools/list
+ * request, and it is typed as the protocol's own tool: a schema that no longer
+ * fits what the client has to accept is a compile error here, not a call the
+ * client rejects later.
+ *
+ * Every bound the handler enforces is stated in the schema, from the constant
+ * the handler checks against. The model picks its arguments from what the
+ * schema says, so a limit the schema omits is a limit it learns about from a
+ * rejected call.
+ */
+export const TOOLS: Tool[] = [
   {
     name: "winedbg_start",
     description:
@@ -23,8 +38,9 @@ export const TOOLS = [
       properties: {
         args: {
           type: "array",
-          items: { type: "string" },
-          description: "Arguments to pass to winedbg (e.g. ['myapp.exe'] or ['1234'])",
+          items: { type: "string", maxLength: MAX_ARG_CHARS },
+          maxItems: MAX_START_ARGS,
+          description: `Arguments to pass to winedbg (e.g. ['myapp.exe'] or ['1234']), at most ${MAX_START_ARGS} entries of up to ${MAX_ARG_CHARS} characters each.`,
         },
       },
     },
@@ -38,10 +54,16 @@ export const TOOLS = [
       properties: {
         command: {
           type: "string",
-          description: "A single winedbg command to execute",
+          minLength: 1,
+          maxLength: MAX_COMMAND_CHARS,
+          description: `A single winedbg command to execute, at most ${MAX_COMMAND_CHARS} characters.`,
         },
         timeout: {
-          type: "number",
+          // The handler takes whole milliseconds only, so the schema says
+          // integer rather than number.
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_COMMAND_TIMEOUT_MS,
           description: `Optional timeout in milliseconds for the command to finish. Defaults to ${DEFAULT_COMMAND_TIMEOUT_MS}ms, maximum ${MAX_COMMAND_TIMEOUT_MS}ms.`,
         },
       },
@@ -56,7 +78,7 @@ export const TOOLS = [
       properties: {},
     },
   },
-] as const;
+];
 
 function text(text: string): ToolResult {
   return { content: [{ type: "text", text }] };

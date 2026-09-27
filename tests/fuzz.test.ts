@@ -18,17 +18,16 @@
 
 import { describe, expect, test } from "bun:test";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/constants.js";
-import { LINE_BREAKS } from "../src/session.js";
-import { callTool, type ToolResult, type ToolSession } from "../src/tools.js";
 import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
   MAX_ARG_CHARS,
   MAX_COMMAND_CHARS,
+  MAX_COMMAND_TIMEOUT_MS,
   MAX_START_ARGS,
-  optionalTimeout,
-  requireString,
-  requireStringArray,
-} from "../src/validate.js";
+} from "../src/constants.js";
+import { LINE_BREAKS } from "../src/session.js";
+import { callTool, type ToolResult, type ToolSession } from "../src/tools.js";
+import { optionalTimeout, requireString, requireStringArray } from "../src/validate.js";
 
 const CASES_PER_SEED = 150;
 const MAX_MUTATIONS = 3;

@@ -1,6 +1,6 @@
 import { BINARY_VAR } from "./config.js";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
-import { stderrLogger, type Logger } from "./logger.js";
+import { type Logger, stderrLogger } from "./logger.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
 import { nodeRuntime } from "./runtime.js";
 
@@ -21,6 +21,11 @@ const KILL_GRACE_MS = 2000;
 // needs to land and the close event to arrive; past it the start proceeds, since
 // an unresponsive child must not wedge the tool.
 const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
+// Nothing announces the exit of a reparented debuggee, so the group is polled
+// instead: often enough that a shutdown settles on the exit rather than a poll
+// interval later, and the number of polls is what bounds the wait.
+const TREE_POLL_MS = 25;
+const TREE_WAIT_STEPS = Math.ceil(TERMINATION_WAIT_MS / TREE_POLL_MS);
 // The debugger answers one line with one prompt, so a command is one line only
 // if it is one line under every reader: a stream reader splits on \n, \r and
 // vertical tab, and a text decoder that honours the Unicode line breaks splits
@@ -102,8 +107,9 @@ export class WinedbgSession {
   // send while it is.
   private awaitingAbandonedPrompt: boolean = false;
   private droppedChars: number = 0;
-  // Debuggers a stop or a failed start signalled, still waiting to be reaped.
-  private terminating: Set<DebuggerChild> = new Set();
+  // Debuggers a stop or a failed start signalled, each with the promise that
+  // settles when nothing its process group held is left running.
+  private terminating: Map<DebuggerChild, Promise<void>> = new Map();
   // Bumped by every start and by every stop. A launch waiting to spawn reads it
   // afterwards, so a stop during that wait cancels the start rather than leaving
   // it to spawn a debugger nobody is waiting on.
@@ -119,7 +125,7 @@ export class WinedbgSession {
     private readonly binary: string = DEFAULT_BINARY,
     private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS,
     private readonly runtime: SessionRuntime = nodeRuntime(),
-    private readonly log: Logger = stderrLogger
+    private readonly log: Logger = stderrLogger,
   ) {}
 
   /**
@@ -321,36 +327,28 @@ export class WinedbgSession {
   }
 
   /**
-   * Wait for the debuggers an earlier stop signalled to be gone. Each one holds
+   * Wait for the terminations an earlier stop began to finish. Each one holds
    * a detached process group that outlives the session that made it, and a
    * client alternating start and stop would otherwise leave one per cycle. The
-   * wait is bounded: a child that outlives SIGKILL must not wedge the tool, and
-   * the next start proceeds rather than waiting on it.
+   * wait is bounded: a process group that outlives the kill escalation must not
+   * wedge the tool, and the next start proceeds rather than waiting on it.
    */
   private async awaitTerminations() {
     while (this.terminating.size > 0) {
-      const children = [...this.terminating];
-      const closed = Promise.all(
-        children.map(
-          (child) =>
-            new Promise<void>((resolve) => {
-              child.onClose(() => resolve());
-            }),
-        ),
-      );
+      const pending = [...this.terminating.values()];
       let timer: NodeJS.Timeout | undefined;
       const expired = new Promise<void>((resolve) => {
         timer = setTimeout(resolve, TERMINATION_WAIT_MS);
         timer.unref();
       });
-      await Promise.race([closed, expired]);
+      await Promise.race([Promise.all(pending), expired]);
       if (timer) clearTimeout(timer);
-      if (this.terminating.size >= children.length) {
-        // The wait expired with nothing reaped. An entry only exists to hold the
-        // next start off, and a child that outlived SIGKILL is not going to
-        // report a close: left in place it would grow the set by one per stop,
-        // never released, and make every later wait cover all of them at once.
-        for (const child of children) this.terminating.delete(child);
+      if (this.terminating.size >= pending.length) {
+        // The wait expired with nothing settled. An entry only exists to hold
+        // the next start off, and a group that outlived SIGKILL is not going to
+        // empty: left in place it would grow the map by one per stop, never
+        // released, and make every later wait cover all of them at once.
+        for (const child of this.terminating.keys()) this.terminating.delete(child);
         return;
       }
     }
@@ -378,9 +376,26 @@ export class WinedbgSession {
    * debug running with no debugger and no owner.
    */
   private terminate(child: DebuggerChild) {
-    // Tracked until the close that ends it, since the next start waits for it
-    // rather than racing it into a second detached process group.
-    this.terminating.add(child);
+    // Tracked until the whole tree it led is gone, since the next start waits
+    // for it rather than racing it into a second detached process group, and
+    // shutdown() promises the debuggee is gone too.
+    let settle: () => void = () => {};
+    const gone = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.terminating.set(child, gone);
+    const release = () => {
+      if (this.terminating.delete(child)) settle();
+    };
+    // Whichever of the two comes first owns the wait: the close of a debugger
+    // that answered SIGTERM, or the escalation that had to end one that did
+    // not. Neither is the end of the tree on its own.
+    let waiting = false;
+    const settleWhenEmpty = () => {
+      if (waiting) return;
+      waiting = true;
+      this.awaitTreeEmpty(child, release);
+    };
     child.killTree("SIGTERM");
     // A debugger stopped inside a trap handler may not answer SIGTERM.
     const grace = this.runtime.clock.setTimeout(() => {
@@ -390,16 +405,41 @@ export class WinedbgSession {
       // does. Left to wait for a process that may never exit, every start and
       // stop cycle would add three more.
       child.closePipes();
-      // Nothing more can be done for a debugger that has survived SIGKILL, and a
-      // start only ever waited a bounded time for it, so stop tracking it
-      // instead of growing the set by one per cycle.
-      this.terminating.delete(child);
+      settleWhenEmpty();
     }, KILL_GRACE_MS);
     grace.unref();
     child.onClose(() => {
-      this.terminating.delete(child);
       grace.cancel();
+      // A close says the debugger is gone, not that the program it started is:
+      // the debuggee is reparented the moment its debugger dies, and nothing
+      // else is left to signal it.
+      settleWhenEmpty();
     });
+  }
+
+  /**
+   * Hold the entry until the process group the debugger led is empty. A
+   * debugger this process is waiting on stays in the group as a zombie until it
+   * is reaped, and a reparented debuggee reports no event to wait on at all, so
+   * the only question is whether anything is still in the group. The SIGKILL is
+   * the same escalation the debugger needed, aimed at the group that outlived
+   * it. The number of polls bounds the wait, so a group nothing can empty is
+   * released rather than waited on forever.
+   */
+  private awaitTreeEmpty(child: DebuggerChild, release: () => void) {
+    const escalate = this.runtime.clock.setTimeout(() => child.killTree("SIGKILL"), KILL_GRACE_MS);
+    escalate.unref();
+    let stepsLeft = TREE_WAIT_STEPS;
+    const check = () => {
+      if (!child.treeAlive() || stepsLeft-- <= 0) {
+        escalate.cancel();
+        release();
+        return;
+      }
+      const wait = this.runtime.clock.setTimeout(check, TREE_POLL_MS);
+      wait.unref();
+    };
+    check();
   }
 
   /** Bound the buffer, keeping the tail: the prompt that ends a reply is there. */
@@ -625,13 +665,16 @@ export class WinedbgSession {
   }
 
   /**
-   * Stop the session and wait for the debuggers it signalled to be gone.
+   * Stop the session and wait for everything the debugger it signalled led to
+   * be gone.
    *
    * `stop` returns as soon as SIGTERM is sent, which is not the end of the
    * cleanup: a debugger stopped inside a trap handler ignores it and is only
-   * ended by the escalation a grace period later. A caller that exits the
-   * process on the strength of `stop` alone takes that escalation with it and
-   * leaves the debugger, and the debuggee it launched, running with no owner.
+   * ended by the escalation a grace period later, and the debuggee it launched
+   * is reparented the moment the debugger dies, so it outlives the signal that
+   * reached it. A caller that exits the process on the strength of `stop` alone
+   * takes that escalation with it and leaves the debugger, and the debuggee,
+   * running with no owner.
    *
    * Calling it again signals nothing a second time: `stop` has already released
    * the child, so the repeat waits on the same termination rather than starting

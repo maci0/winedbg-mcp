@@ -2,15 +2,14 @@
 // every one of them is untrusted input on the way to spawn and to the debugger.
 
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/constants.js";
 import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
   MAX_ARG_CHARS,
   MAX_COMMAND_CHARS,
+  MAX_COMMAND_TIMEOUT_MS,
   MAX_START_ARGS,
-  optionalTimeout,
-  requireString,
-  requireStringArray,
-} from "../src/validate.js";
+} from "../src/constants.js";
+import { optionalTimeout, requireString, requireStringArray } from "../src/validate.js";
 
 describe("requireStringArray", () => {
   test("defaults to empty when the field is absent", () => {

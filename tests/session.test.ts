@@ -52,7 +52,12 @@ function newSession(): WinedbgSession {
   // PATH lookup or shebang interpreter is involved. The logger discards: these
   // tests are about the state machine, and the suite's own output would
   // otherwise carry a session lifecycle per test.
-  session = new WinedbgSession(process.execPath, undefined, undefined, createLogger("debug", () => {}));
+  session = new WinedbgSession(
+    process.execPath,
+    undefined,
+    undefined,
+    createLogger("debug", () => {}),
+  );
   return session;
 }
 
@@ -245,17 +250,13 @@ describe("executeCommand", () => {
 
   // The same 2MB as the dribble fixture below, written in one piece, so the
   // budget is set for pushing it through a pipe rather than for the assertion.
-  test(
-    "caps a huge reply and says how much it dropped",
-    async () => {
-      const s = await startedSession();
-      const out = await s.executeCommand("noise:" + OVERFLOW_CHARS);
-      expect(out).toMatch(/characters of earlier output dropped/);
-      expect(out.length).toBeLessThan(OVERFLOW_CHARS);
-      expect(await s.executeCommand("bt")).toBe("ran: bt");
-    },
-    20000
-  );
+  test("caps a huge reply and says how much it dropped", async () => {
+    const s = await startedSession();
+    const out = await s.executeCommand(`noise:${OVERFLOW_CHARS}`);
+    expect(out).toMatch(/characters of earlier output dropped/);
+    expect(out.length).toBeLessThan(OVERFLOW_CHARS);
+    expect(await s.executeCommand("bt")).toBe("ran: bt");
+  }, 20000);
 
   // The fixture dribbles 2MB in 8192-byte pieces, so this is 256 child writes and
   // 256 parent reads of a buffer sitting at its cap. It takes seconds on a quiet
@@ -369,7 +370,12 @@ describe("stop", () => {
   });
 
   test("settles a start that is still waiting for its prompt", async () => {
-    const s = new WinedbgSession(process.execPath, 5000, undefined, createLogger("debug", () => {}));
+    const s = new WinedbgSession(
+      process.execPath,
+      5000,
+      undefined,
+      createLogger("debug", () => {}),
+    );
     session = s;
     // "mute" never prompts, so nothing but stop() can end this start. Leaving
     // the caller awaiting a prompt that can no longer arrive hangs the request.
@@ -414,6 +420,12 @@ describe("logging", () => {
     return records.map((record) => record["message"] as string);
   }
 
+  function record(records: Record<string, unknown>[], message: string): Record<string, unknown> {
+    const found = records.find((candidate) => candidate["message"] === message);
+    if (!found) throw new Error(`no log line reading ${message}`);
+    return found;
+  }
+
   test("a start reports the spawn, the prompt it waited for and a command that timed out", async () => {
     const { session: s, records } = loggedSession();
     await s.start([FAKE]);
@@ -422,12 +434,12 @@ describe("logging", () => {
     expect(messagesSeen).toContain("winedbg spawned, waiting for its first prompt");
     expect(messagesSeen).toContain("winedbg is at its first prompt");
     // The duration is what tells a slow wineprefix from a debugger that is stuck.
-    const ready = records().find((r) => r["message"] === "winedbg is at its first prompt")!;
+    const ready = record(records(), "winedbg is at its first prompt");
     expect(typeof ready["readyMs"]).toBe("number");
     expect(typeof ready["pid"]).toBe("number");
 
     await expect(s.executeCommand("hang", HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
-    const timedOut = records().find((r) => r["message"] === "winedbg command timed out")!;
+    const timedOut = record(records(), "winedbg command timed out");
     expect(timedOut["level"]).toBe("error");
     expect(timedOut["command"]).toBe("hang");
     expect(timedOut["timeoutMs"]).toBe(HANG_TIMEOUT_MS);
@@ -437,7 +449,7 @@ describe("logging", () => {
     const { session: s, records } = loggedSession();
     await s.start([FAKE]);
     await expect(s.executeCommand("crash")).rejects.toThrow();
-    const crashed = records().find((r) => r["message"] === "winedbg exited")!;
+    const crashed = record(records(), "winedbg exited");
     expect(crashed["level"]).toBe("error");
     expect(crashed["code"]).toBe(3);
     expect(crashed["wasReady"]).toBe(true);
@@ -448,32 +460,46 @@ describe("logging", () => {
     await Bun.sleep(KILL_WAIT_MS);
     // Everything after the stop is the close that stop() asked for, which must
     // not read as a debugger that crashed under a client.
-    expect(records().slice(before).map((r) => r["message"])).not.toContain("winedbg exited");
+    expect(
+      records()
+        .slice(before)
+        .map((r) => r["message"]),
+    ).not.toContain("winedbg exited");
   });
 });
 
 describe("shutdown", () => {
-  test(
-    "does not resolve until a debugger that ignored SIGTERM is gone",
-    async () => {
-      const s = newSession();
-      // "stubborn" answers SIGTERM with nothing, so only the escalation ends it,
-      // a grace period after the signal. A caller that exits the process on the
-      // strength of the signal alone would leave it, and its debuggee, running.
-      await s.start([FAKE, "stubborn", "grandchild"]);
-      const debuggerPid = Number(await s.executeCommand("selfpid"));
-      const debuggee = Number((await s.executeCommand("pid")).replace("ran: ", ""));
-      expect(debuggerPid).toBeGreaterThan(0);
-      expect(debuggee).toBeGreaterThan(0);
-      await s.shutdown();
-      // The close the session waits for is delivered after the reap, so both
-      // groups are gone by the time it resolves, with no further waiting here.
-      expect(() => process.kill(debuggerPid, 0)).toThrow();
-      expect(() => process.kill(debuggee, 0)).toThrow();
-      expect(s.isRunning()).toBe(false);
-    },
-    10000
-  );
+  test("does not resolve until a debugger that ignored SIGTERM is gone", async () => {
+    const s = newSession();
+    // "stubborn" answers SIGTERM with nothing, so only the escalation ends it,
+    // a grace period after the signal. A caller that exits the process on the
+    // strength of the signal alone would leave it, and its debuggee, running.
+    await s.start([FAKE, "stubborn", "grandchild"]);
+    const debuggerPid = Number(await s.executeCommand("selfpid"));
+    const debuggee = Number((await s.executeCommand("pid")).replace("ran: ", ""));
+    expect(debuggerPid).toBeGreaterThan(0);
+    expect(debuggee).toBeGreaterThan(0);
+    await s.shutdown();
+    // The close the session waits for is delivered after the reap, so both
+    // groups are gone by the time it resolves, with no further waiting here.
+    expect(() => process.kill(debuggerPid, 0)).toThrow();
+    expect(() => process.kill(debuggee, 0)).toThrow();
+    expect(s.isRunning()).toBe(false);
+  }, 10000);
+
+  // The debugger dying says nothing about the program it started: the debuggee
+  // is reparented the moment it does, and a tree that ignored SIGTERM is
+  // reparented still running. The escalation that used to be cancelled with the
+  // debugger's close left it behind with no debugger and no owner.
+  test("does not resolve until a debuggee that ignored SIGTERM is gone", async () => {
+    const s = newSession();
+    await s.start([FAKE, "grandchild-stubborn"]);
+    const debuggee = Number((await s.executeCommand("pid")).replace("ran: ", ""));
+    expect(debuggee).toBeGreaterThan(0);
+    await s.shutdown();
+    expect(() => process.kill(debuggee, 0)).toThrow();
+    expect(s.isRunning()).toBe(false);
+  }, 10000);
 
   test("resolves without signalling again when called twice", async () => {
     const s = newSession();
