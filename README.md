@@ -2,9 +2,17 @@
 
 An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the interactive debugger, allowing LLMs to control it through MCP tools.
 
+## Status
+
+This repository currently holds documentation only: this README and
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). There is no `package.json`, no
+`src/`, and no `tests/`, so the commands and file paths below describe the
+intended layout of the server and cannot be run from this tree. Nothing here
+has been executed against a running `winedbg`.
+
 ## Prerequisites
 
-- [Bun](https://bun.sh/), the package manager, build tool and test runner here (`packageManager` in `package.json` pins the version)
+- [Bun](https://bun.sh/), the package manager, build tool and test runner
 - [Wine](https://www.winehq.org/), which includes `winedbg`
 
 Node.js 18 or higher is only needed if you run the built `build/index.js`
@@ -102,15 +110,18 @@ short answer.
 
 ## Tests
 
+No test suite ships in this tree, so there is nothing to run yet. Once the
+server lands, the commands are:
+
 ```bash
 bun run typecheck
 bun test
 ```
 
-The suite drives `WinedbgSession` against `tests/fake-winedbg.js`, a stand-in that
-speaks the same `Wine-dbg>` prompt protocol, so it runs without Wine installed, and
-checks the tool-argument validation in `src/validate.ts` and the environment
-parsing in `src/config.ts`.
+The suite is meant to drive `WinedbgSession` against a stand-in that speaks the
+same `Wine-dbg>` prompt protocol, so it can run without Wine installed, and to
+cover the tool-argument validation and the environment parsing described
+above.
 
 ## Troubleshooting
 
