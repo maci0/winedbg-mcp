@@ -1,6 +1,6 @@
 import { BINARY_VAR } from "./config.js";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
-import { stderrLogger, type Logger } from "./logger.js";
+import { type Logger, stderrLogger } from "./logger.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
 import { nodeRuntime } from "./runtime.js";
 
@@ -119,7 +119,7 @@ export class WinedbgSession {
     private readonly binary: string = DEFAULT_BINARY,
     private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS,
     private readonly runtime: SessionRuntime = nodeRuntime(),
-    private readonly log: Logger = stderrLogger
+    private readonly log: Logger = stderrLogger,
   ) {}
 
   /**

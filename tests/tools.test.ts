@@ -14,6 +14,17 @@ function stubSession(overrides: Partial<ToolSession> = {}): ToolSession {
   return { ...session, ...overrides };
 }
 
+// The schemas are plain object literals, so their inferred types are three
+// unrelated shapes and none of them models `required`. The point of these tests
+// is the wire shape the model sees, so read it through one name.
+type Schema = { properties: Record<string, unknown>; required?: string[] };
+
+function schemaOf(name: string): Schema {
+  const tool = TOOLS.find((candidate) => candidate.name === name);
+  if (tool === undefined) throw new Error(`no tool named ${name}`);
+  return tool.inputSchema as Schema;
+}
+
 describe("tool list", () => {
   test("names the three tools the handler dispatches", () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual(["winedbg_start", "winedbg_execute", "winedbg_stop"]);
@@ -24,10 +35,9 @@ describe("tool list", () => {
   // model sends the advertised field, the handler reads undefined, and the call
   // fails at the session instead of at the boundary. Pin the advertised names.
   test("advertises the argument names the handler reads", () => {
-    const byName = new Map(TOOLS.map((tool) => [tool.name, tool.inputSchema]));
-    expect(Object.keys(byName.get("winedbg_start")!.properties)).toEqual(["args"]);
-    expect(Object.keys(byName.get("winedbg_execute")!.properties)).toEqual(["command", "timeout"]);
-    expect(Object.keys(byName.get("winedbg_stop")!.properties)).toEqual([]);
+    expect(Object.keys(schemaOf("winedbg_start").properties)).toEqual(["args"]);
+    expect(Object.keys(schemaOf("winedbg_execute").properties)).toEqual(["command", "timeout"]);
+    expect(Object.keys(schemaOf("winedbg_stop").properties)).toEqual([]);
   });
 
   // Without this, a model turn that omits the command reaches the debugger as an

@@ -349,7 +349,7 @@ async function runScenario(seed: number): Promise<{ transcript: string[]; signal
       clock,
       spawn: () => fake,
     },
-    createLogger("debug", () => {})
+    createLogger("debug", () => {}),
   );
   const transcript: string[] = [];
   const fail = (message: string): never => {
@@ -488,7 +488,10 @@ describe("session simulation", () => {
     const clock = new VirtualClock();
     const trapped = new SimulatedDebugger(clock, () => 0, 12);
     const stubborn = new WinedbgSession("winedbg", READY_TIMEOUT_MS, { clock, spawn: () => trapped });
-    const ready = await settle(clock, stubborn.start().then(() => ""));
+    const ready = await settle(
+      clock,
+      stubborn.start().then(() => ""),
+    );
     expect(ready).toEqual({ ok: true, value: "" });
     stubborn.stop();
     clock.advance(AFTER_STOP_MS);
@@ -500,7 +503,14 @@ describe("session simulation", () => {
 
     const cooperative = new SimulatedDebugger(clock, () => 1, 12);
     const polite = new WinedbgSession("winedbg", READY_TIMEOUT_MS, { clock, spawn: () => cooperative });
-    expect((await settle(clock, polite.start().then(() => ""))).ok).toBe(true);
+    expect(
+      (
+        await settle(
+          clock,
+          polite.start().then(() => ""),
+        )
+      ).ok,
+    ).toBe(true);
     polite.stop();
     clock.advance(AFTER_STOP_MS);
     // Its close arrived first, so the pipes went with it and the escalation that

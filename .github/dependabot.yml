@@ -4,3 +4,30 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # CI installs with --frozen-lockfile, so nothing in the tree moves unless a
+  # pull request says so. Without this entry the ~100 packages @modelcontextprotocol/sdk
+  # pulls in are frozen at whatever they resolved to on the day the lockfile was
+  # written, and a security patch upstream has no path into the build.
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # The SDK's HTTP transports (express, hono, cors, express-rate-limit) are
+      # transitive and this server speaks only stdio, so they arrive and leave
+      # with the SDK. One PR per range keeps that from filling the queue.
+      mcp-sdk:
+        patterns:
+          - "@modelcontextprotocol/sdk"
+        update-types:
+          - minor
+          - patch
+      typescript:
+        patterns:
+          - "typescript"
+      tooling:
+        patterns:
+          - "@biomejs/biome"
+          - "@types/*"

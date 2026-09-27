@@ -73,9 +73,7 @@ describe("loadConfig", () => {
   // exclusive end fails here rather than on a deployment's cold start.
   test("the range ends are inside it", () => {
     expect(loadConfig({ [READY_TIMEOUT_VAR]: "1" }).readyTimeoutMs).toBe(1);
-    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(
-      MAX_READY_TIMEOUT_MS
-    );
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_READY_TIMEOUT_MS) }).readyTimeoutMs).toBe(MAX_READY_TIMEOUT_MS);
   });
 
   test("surrounding whitespace is a typo-free formatting habit, not a value", () => {
