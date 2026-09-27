@@ -133,7 +133,7 @@ so the log is the whole surface.
 - **`winedbg_start`**: Start or attach to `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works: the program to launch (e.g. `{"args": ["myapp.exe"]}`) or a PID to attach to (`{"args": ["1234"]}`). `args` must be an array of strings; a bare string is rejected rather than split into one argument per character. At most 64 entries, each at most 4096 characters, none carrying a NUL: an argv entry is cut at the first NUL by the C runtime, and an unbounded array is a caller filling the process table rather than a debugging session.
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
   Takes an optional `timeout` in milliseconds (default 30000, minimum 1, maximum 600000). The command is at most 4096 characters and carries no line break or NUL, for the reason under command framing below.
-- **`winedbg_stop`**: Stop the active `winedbg` session. A start that follows a stop waits for the stopped debugger to be gone, so alternating the two cannot leave one detached process group, each holding a debuggee, per cycle.
+- **`winedbg_stop`**: Stop the active `winedbg` session. A start that follows a stop waits for the stopped debugger to be gone, so alternating the two cannot leave one detached process group, each holding a debuggee, per cycle. A stop returns once the signal is sent, since a tool call should not be held open for a grace period; the wait happens where nothing is waiting on it, in the next `winedbg_start` and in the server's own exit on SIGINT, SIGTERM or the end of stdin.
 
 ### Audit log
 
@@ -210,7 +210,7 @@ Options:
 
 | Invocation | Stream | Exit |
 | --- | --- | --- |
-| `winedbg-mcp` | Serves JSON-RPC on stdin/stdout | 0 on SIGINT, SIGTERM, or end of stdin |
+| `winedbg-mcp` | Serves JSON-RPC on stdin/stdout | 0 on SIGINT, SIGTERM, or end of stdin, after winedbg and the debuggee it started are waited for (up to 4s) |
 | `winedbg-mcp --help` | Help on stdout | 0 |
 | `winedbg-mcp --version` | The `package.json` version on stdout | 0 |
 | `winedbg-mcp --anything-else` | The offending argument and a pointer to `--help`, on stderr | 2 |

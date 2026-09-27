@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Stand-in for winedbg: same prompt protocol, deterministic replies, no Wine.
 // Commands: quit (exit 0), crash (exit 3), selfkill (SIGKILL, no exit code),
-// hang (never prompts again), pid (the debuggee pid), "sleep:<ms>" (replies after
-// <ms>), warn (writes to stderr), silent (prompt only), close-stdin (stops
+// hang (never prompts again), pid (the debuggee pid), selfpid (its own pid),
+// "sleep:<ms>" (replies after <ms>), warn (writes to stderr), silent (prompt
+// only), close-stdin (stops
 // reading commands), "noise:<n>" (a reply of n characters), "dribble:<n>" (the
 // same, in pieces small enough to arrive one read at a time), utf8 (a non-ASCII
 // reply written one byte at a time, so every character spans two reads),
@@ -12,19 +13,23 @@
 // Invoked with "die" as argv[2] it exits before printing a prompt; with "mute"
 // it stays alive and never prints one, so the caller hits its start timeout;
 // with "grandchild" it starts a debuggee of its own, which is what a real
-// winedbg does for the program it is launched with.
+// winedbg does for the program it is launched with; with "stubborn" it does the
+// same and ignores SIGTERM, the way a debugger stopped inside a trap handler
+// does, so only the kill escalation ends it.
 
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 if (process.argv[2] === "die") process.exit(2);
 
+if (process.argv[2] === "stubborn") process.on("SIGTERM", () => {});
+
 if (process.argv[2] !== "mute") process.stdout.write("Wine-dbg>");
 
 // Same process group as this process, and it survives this one exiting unless
 // the whole group is signalled.
 const debuggee =
-  process.argv[2] === "grandchild"
+  process.argv[2] === "grandchild" || process.argv[2] === "stubborn"
     ? spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
     : null;
 
@@ -170,6 +175,9 @@ function handle(line) {
       break;
     case "pid":
       process.stdout.write(debuggee ? String(debuggee.pid) : "0");
+      break;
+    case "selfpid":
+      process.stdout.write(String(process.pid));
       break;
     case "warn":
       process.stderr.write("stderr line\n");

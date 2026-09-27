@@ -111,8 +111,13 @@ process.on("exit", () => session.stopImmediately());
 
 function shutdown(reason: string) {
   log.info("shutting down", { reason });
-  session.stop();
-  process.exit(0);
+  // stop() returns once the signal is sent, and a debugger stopped inside a trap
+  // handler is only ended by the escalation a grace period later. Exiting on the
+  // strength of the signal alone would take that escalation with it and leave the
+  // debugger, and the debuggee it launched, running with no owner. shutdown()
+  // waits for them, and a second signal arriving during that wait joins the same
+  // one rather than signalling anything twice.
+  void session.shutdown().finally(() => process.exit(0));
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

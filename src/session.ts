@@ -577,6 +577,24 @@ export class WinedbgSession {
     return child;
   }
 
+  /**
+   * Stop the session and wait for the debuggers it signalled to be gone.
+   *
+   * `stop` returns as soon as SIGTERM is sent, which is not the end of the
+   * cleanup: a debugger stopped inside a trap handler ignores it and is only
+   * ended by the escalation a grace period later. A caller that exits the
+   * process on the strength of `stop` alone takes that escalation with it and
+   * leaves the debugger, and the debuggee it launched, running with no owner.
+   *
+   * Calling it again signals nothing a second time: `stop` has already released
+   * the child, so the repeat waits on the same termination rather than starting
+   * a second one.
+   */
+  async shutdown(): Promise<void> {
+    this.stop();
+    await this.awaitTerminations();
+  }
+
   /** Whether a debugger process is held, ready or not. Not whether it is at its prompt. */
   isRunning(): boolean {
     return this.process !== null;

@@ -48,7 +48,7 @@ crafted. Each row is a record for sec-review, not a fix.
 | 4 | A debuggee's stdout is indistinguishable from the debugger's (`README.md:110-112`). A program under debug that prints `Wine-dbg>` can end a reply at a point of its choosing, hiding whatever output follows. | B3 | Wrong debugging conclusions; an operator is told the program's output stopped where the attacker chose | Unmitigated. The first prompt from the search position is the boundary (`src/session.ts:243`) |
 | 5 | Debuggee output reaches the caller as tool text, so program-controlled bytes reach the LLM driving the server. It is decoded as UTF-8 first (`README.md:126-134`), so a program printing non-UTF-8 bytes is returned as U+FFFD, which mangles the output without changing its authority. | B1, B3 | Prompt injection into the agent: the debugged program can steer the tool-using model. A target that prints in a legacy code page has its output silently rewritten, so a mangled reply can be read as a correct one | Unmitigated |
 | 6 | The stdio transport has no authentication. Any process that inherits or reaches the fds is a full client. | B1 | Same as #1, reached through a weaker path | Unmitigated; the only control is how the client is launched. `StdioServerTransport` is constructed with no options (`src/index.ts:57`) |
-| 7 | `stop()` clears the session and signals the child process group, but returns without waiting for it to exit (`src/session.ts:340-363`, `src/session.ts:195-201`). A client alternating `winedbg_start` and `winedbg_stop` leaves a live debugger and debuggee per cycle and can accumulate detached process groups faster than the 2s grace kill reaches them. | B1, B2 | Resource exhaustion: orphaned debuggees holding memory, CPU and the user's file access with no owner | [verified] Partial. The group is signalled with `SIGTERM`, escalating to `SIGKILL` after a 2s grace (`src/session.ts:15`, `src/session.ts:195-201`, `src/runtime.ts:104-115`), and `tests/session.test.ts` covers the debuggee dying with the debugger, but nothing waits for the exit |
+| 7 | `stop()` clears the session and signals the child process group, but returns without waiting for it to exit (`src/session.ts:340-363`, `src/session.ts:195-201`). A client alternating `winedbg_start` and `winedbg_stop` leaves a live debugger and debuggee per cycle and can accumulate detached process groups faster than the 2s grace kill reaches them. | B1, B2 | Resource exhaustion: orphaned debuggees holding memory, CPU and the user's file access with no owner | [verified] Partial. The group is signalled with `SIGTERM`, escalating to `SIGKILL` after a 2s grace, and `tests/session.test.ts` covers the debuggee dying with the debugger. `stop()` itself returns on the signal, so a tool call is never held open by it; the wait happens where it costs nothing, in the next `start` (`awaitTerminations`) and in `WinedbgSession.shutdown`, which the process exit paths use so the escalation is not cut short by the exit. A client that stops and never starts again, and never exits, still relies on that escalation alone |
 | 8 | A `timeout` of up to 600000 holds a tool call for ten minutes, and a timed-out command leaves the session refusing commands until `winedbg_stop` destroys the debugging state (`README.md:120-124`). | B1 | Denial of service against the session, loss of the target's state | Partial: `winedbg_stop` and restart recover it (`src/session.ts:276-281`, `src/session.ts:299-303`) |
 | 9 | A reply is buffered up to 1M UTF-16 code units and returned whole, roughly 250k tokens of program-controlled text in one tool result (`README.md:126-134`). | B1, B3 | Cost and context exhaustion in the client; the model reads attacker-chosen text at length | Bounded per reply, unbounded in count (`src/session.ts:9`) |
 | 10 | Each chunk of child output is decoded on its own (`src/runtime.ts:73-76`), so a multibyte UTF-8 sequence split across two chunks becomes U+FFFD, and the trim at the cap cuts at a UTF-16 code unit (`src/session.ts:221-224`), which can split a surrogate pair. | B3 | Mangled program output and mangled dropped blocks, both read by the operator as a correct reply | Unmitigated; the drop is counted and reported (`src/session.ts:252`) but the mangling is not |
@@ -87,7 +87,7 @@ process holds, which is row 2.
 | The rest of the process environment | Inherited by winedbg and by whatever winedbg starts | `README.md:79-84` | None; `spawn` passes no `env` (`src/runtime.ts:124-132`) |
 | The server's working directory | Inherited by the child; resolves a relative binary and a relative `args[0]` | `README.md:79-84` | None; `spawn` passes no `cwd` (`src/runtime.ts:124-132`) |
 | winedbg stdout and stderr | Child output stream, including the debuggee's | `README.md:110-112` | Decoded as UTF-8 per chunk, 1M UTF-16 code unit cap per reply, trimmed at a code unit; no content check (`src/runtime.ts:73-76`, `src/session.ts:9`, `src/session.ts:204-209`) |
-| SIGINT, SIGTERM, stdin `end`/`close`, process `exit`, transport close | Lifecycle | Session teardown (`src/index.ts:45`, `src/index.ts:47-54`, `src/index.ts:62-64`) | [verified] None needed; each routes to `stop()` |
+| SIGINT, SIGTERM, stdin `end`/`close`, process `exit`, transport close | Lifecycle | Session teardown (`src/index.ts`) | [verified] None needed; each routes to `shutdown()`, which stops the session and waits, bounded at 4s, for the debuggers it signalled to be gone. The synchronous `exit` handler cannot wait and signals only |
 | Startup line on stderr | Log | `README.md:97-99` | Reports both configuration values in effect (`src/config.ts:37-39`) |
 
 There is no network listener, no HTTP or RPC endpoint, no message consumer, no
@@ -270,10 +270,13 @@ server defends; it is a pipe.
   minutes (`README.md:105`). A timed-out command blocks the next one until the
   prompt returns, and the only escape is `winedbg_stop`, which discards the
   session's state (`README.md:120-124`). [verified] `stop()` signals the child
-  process group and returns without waiting for it to exit
-  (`src/session.ts:340-363`), so a client alternating start and stop leaves each
-  previous debuggee alive until the 2s grace kill reaches it, and can pile up
-  detached process groups faster than they exit (row 7 of the summary).
+  process group and returns without waiting for it to exit, so a client
+  alternating start and stop leaves each previous debuggee alive until the 2s
+  grace kill reaches it. The next `start` waits for that group to be gone before
+  spawning (`awaitTerminations`, bounded at 4s), and `WinedbgSession.shutdown`
+  does the same on SIGINT, SIGTERM, stdin end and transport close, so the
+  alternation cannot pile up detached process groups and an exit cannot cut the
+  escalation short (row 7 of the summary).
   [design] The design says nothing about a bound on the length of `args`.
 - **Repudiation.** Nothing in the design records which client ran which command.
 
@@ -480,8 +483,9 @@ This model is current as of the last-reviewed date above. Its limits:
 - Every **[design]** claim is unverified. The source has since landed, and the
   first pass against it answered, in this order: the spawn passes no `env` and no
   `cwd` (`src/runtime.ts:124-132`); the reply is framed on a pipe the debuggee
-  can write (`src/session.ts:243`); `stop()` does not wait for the child to exit
-  (`src/session.ts:340-363`); tool errors are not sanitised before they reach
+  can write (`src/session.ts:243`); `stop()` does not wait for the child to exit,
+  so a client alternating start and stop could leave each previous debuggee
+  alive until the grace kill reached it; tool errors are not sanitised before they reach
   the caller (`src/tools.ts:97-101`); no command, argument or start attempt is
   logged anywhere; and the reply buffer counts UTF-16 code units, trims at a code
   unit and rejects every line terminator the README names

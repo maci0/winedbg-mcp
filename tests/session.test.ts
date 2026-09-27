@@ -450,3 +450,45 @@ describe("logging", () => {
     expect(records().slice(before).map((r) => r["message"])).not.toContain("winedbg exited");
   });
 });
+
+describe("shutdown", () => {
+  test(
+    "does not resolve until a debugger that ignored SIGTERM is gone",
+    async () => {
+      const s = newSession();
+      // "stubborn" answers SIGTERM with nothing, so only the escalation ends it,
+      // a grace period after the signal. A caller that exits the process on the
+      // strength of the signal alone would leave it, and its debuggee, running.
+      await s.start([FAKE, "stubborn", "grandchild"]);
+      const debuggerPid = Number(await s.executeCommand("selfpid"));
+      const debuggee = Number((await s.executeCommand("pid")).replace("ran: ", ""));
+      expect(debuggerPid).toBeGreaterThan(0);
+      expect(debuggee).toBeGreaterThan(0);
+      await s.shutdown();
+      // The close the session waits for is delivered after the reap, so both
+      // groups are gone by the time it resolves, with no further waiting here.
+      expect(() => process.kill(debuggerPid, 0)).toThrow();
+      expect(() => process.kill(debuggee, 0)).toThrow();
+      expect(s.isRunning()).toBe(false);
+    },
+    10000
+  );
+
+  test("resolves without signalling again when called twice", async () => {
+    const s = newSession();
+    await s.start([FAKE, "grandchild"]);
+    const debuggee = Number((await s.executeCommand("pid")).replace("ran: ", ""));
+    await s.shutdown();
+    // The child was released by the first stop, so the second one has nothing to
+    // signal: it settles the same cleanup rather than starting a second.
+    await s.shutdown();
+    expect(() => process.kill(debuggee, 0)).toThrow();
+    expect(s.isRunning()).toBe(false);
+  });
+
+  test("resolves when nothing is running", async () => {
+    const s = newSession();
+    await s.shutdown();
+    expect(s.isRunning()).toBe(false);
+  });
+});
