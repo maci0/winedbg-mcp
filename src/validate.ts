@@ -65,11 +65,13 @@ export function requireString(value: unknown, field: string): string {
 export function optionalTimeout(value: unknown): number {
   if (value === undefined) return DEFAULT_COMMAND_TIMEOUT_MS;
   // A zero, negative or non-finite timeout fires before the debugger can answer
-  // and leaves the session waiting on a prompt it has already given up on.
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > MAX_COMMAND_TIMEOUT_MS) {
+  // and leaves the session waiting on a prompt it has already given up on. A
+  // fraction is the same problem in smaller units: the stated floor is a whole
+  // millisecond, and one below it is not a timeout anyone asked for.
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > MAX_COMMAND_TIMEOUT_MS) {
     throw new McpError(
       ErrorCode.InvalidParams,
-      `timeout must be a number between 1 and ${MAX_COMMAND_TIMEOUT_MS} milliseconds`
+      `timeout must be a whole number of milliseconds between 1 and ${MAX_COMMAND_TIMEOUT_MS}`
     );
   }
   return value;

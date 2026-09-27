@@ -101,6 +101,10 @@ describe("optionalTimeout", () => {
     expect(() => optionalTimeout(MAX_COMMAND_TIMEOUT_MS + 1)).toThrow(/between 1 and/);
   });
 
+  test("rejects a fraction of a millisecond, which is below the stated floor", () => {
+    expect(() => optionalTimeout(0.5)).toThrow(/between 1 and/);
+  });
+
   test("rejects a numeric string", () => {
     expect(() => optionalTimeout("1000")).toThrow(/between 1 and/);
   });

@@ -87,9 +87,12 @@ export class WinedbgSession {
    * both work. Rejects if a session is already running, and kills the child if
    * the prompt does not arrive within `readyTimeoutMs`.
    */
-  start(args: string[] = []): Promise<void> {
+  // async so that everything here, spawn() throwing on an argument it cannot
+  // carry included, reaches the caller as a rejection. A synchronous throw would
+  // slip past a caller that handles the returned promise.
+  async start(args: string[] = []): Promise<void> {
     if (this.process) {
-      return Promise.reject(new Error("winedbg is already running. Please stop it first."));
+      throw new Error("winedbg is already running. Please stop it first.");
     }
     const id = ++this.launchId;
     this.stopRequested = false;

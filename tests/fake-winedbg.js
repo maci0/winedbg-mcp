@@ -4,7 +4,8 @@
 // hang (never prompts again), pid (the debuggee pid), "sleep:<ms>" (replies after
 // <ms>), warn (writes to stderr), silent (prompt only), close-stdin (stops
 // reading commands), "noise:<n>" (a reply of n characters), "dribble:<n>" (the
-// same, in pieces small enough to arrive one read at a time), anything else
+// same, in pieces small enough to arrive one read at a time), "split:<n>" (n
+// multi-byte characters, the last one cut across two writes), anything else
 // echoes back.
 // Invoked with "die" as argv[2] it exits before printing a prompt; with "mute"
 // it stays alive and never prints one, so the caller hits its start timeout;
@@ -62,6 +63,18 @@ function handle(line) {
       setTimeout(writeNext, 1);
     };
     writeNext();
+    return;
+  }
+  if (line.startsWith("split:")) {
+    // A character whose bytes straddle two writes, so the reader is handed the
+    // first half of it on its own: what its decoder has to carry over.
+    const bytes = Buffer.from("€".repeat(Number(line.slice("split:".length))), "utf8");
+    const half = bytes.length - 1;
+    process.stdout.write(bytes.subarray(0, half));
+    setTimeout(() => {
+      process.stdout.write(bytes.subarray(half));
+      process.stdout.write("Wine-dbg>");
+    }, 20);
     return;
   }
   if (line.startsWith("sleep:")) {
