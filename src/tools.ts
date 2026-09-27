@@ -1,6 +1,7 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { COMMAND_TIMEOUT_VAR } from "./config.js";
 import { MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
+import { describeError } from "./logger.js";
 import type { WinedbgSession } from "./session.js";
 import { optionalTimeout, requireString, requireStringArray } from "./validate.js";
 
@@ -88,7 +89,7 @@ export async function callTool(
       case "winedbg_start": {
         const startArgs = requireStringArray(args?.["args"], "args");
         const outcome = await session.start(startArgs);
-        return text(
+        return textResult(
           outcome === "started"
             ? `winedbg started successfully with args: ${startArgs.join(" ")}`
             : `winedbg is already running with args: ${startArgs.join(" ")}. The repeated start launched nothing.`,

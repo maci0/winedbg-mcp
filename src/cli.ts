@@ -1,11 +1,4 @@
-import {
-  DEFAULT_BINARY,
-  DEFAULT_LOG_LEVEL,
-  DEFAULT_READY_TIMEOUT_MS,
-  LOG_LEVELS,
-  MAX_READY_TIMEOUT_MS,
-} from "./constants.js";
-import { TERMINATION_WAIT_MS } from "./session.js";
+import { DEFAULT_BINARY } from "./constants.js";
 import { SERVER_VERSION } from "./version.js";
 
 const INVOCATION = "winedbg-mcp [OPTION]";

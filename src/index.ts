@@ -5,7 +5,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { parseCliArgs, USAGE_LINE, UsageError } from "./cli.js";
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
-import { createLogger } from "./logger.js";
+import { createLogger, describeError } from "./logger.js";
 import { nodeRuntime } from "./runtime.js";
 import { WinedbgSession } from "./session.js";
 import { callTool, describeTools, type ToolResult } from "./tools.js";

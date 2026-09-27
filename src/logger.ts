@@ -65,6 +65,14 @@ export function callFields(): LogFields {
   return context === undefined ? {} : { callId: context.callId };
 }
 
+/**
+ * The message a thrown value carries. An Error has one, and anything else is
+ * stringified, so a log field or an error message never reads "undefined".
+ */
+export function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** Where the server logs by default: the same stderr the CLI already reports on. */
 export const stderrLogger: Logger = createLogger("info", (line) => {
   process.stderr.write(`${line}\n`);

@@ -1,6 +1,6 @@
 import { BINARY_VAR } from "./config.js";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
-import { callFields, type Logger, stderrLogger } from "./logger.js";
+import { callFields, describeError, type Logger, stderrLogger } from "./logger.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
 import { nodeRuntime } from "./runtime.js";
 
