@@ -39,6 +39,13 @@ Source layout, one concern per module:
 - [Bun](https://bun.sh/), the package manager, build tool and test runner
 - [Wine](https://www.winehq.org/), which includes `winedbg`
 
+Supported platforms are Linux and macOS. `winedbg_stop` signals a process group
+rather than a single process, so the debuggee `winedbg` launched is stopped with
+it, and that needs POSIX process groups: neither the `detached` child group nor
+the negative-pid `kill` exists on Windows, where the same call would leave the
+program under debug running. CI runs on Linux only, so macOS is supported by the
+code being POSIX and untested; say so if that changes.
+
 Node.js 18 or higher is only needed if you run the built `build/index.js`
 with `node` instead of `bun`.
 

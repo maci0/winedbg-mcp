@@ -10,12 +10,17 @@
 // kills it in afterEach, so nothing is shared between tests.
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { BINARY_VAR } from "../src/config.js";
 import { DEFAULT_READY_TIMEOUT_MS } from "../src/constants.js";
 import { createLogger } from "../src/logger.js";
 import { WinedbgSession } from "../src/session.js";
 
-const FAKE = new URL("fake-winedbg.js", import.meta.url).pathname;
+// fileURLToPath, not .pathname: a file: URL is percent-encoded, and on Windows
+// its pathname carries a leading slash the path does not have (C:\a becomes
+// /C:/a). Either way a checkout under a directory with a space or a non-ASCII
+// character in it spawns a path that does not exist.
+const FAKE = fileURLToPath(new URL("fake-winedbg.js", import.meta.url));
 // Kept below SLOW_REPLY_MS, so "sleep:<SLOW_REPLY_MS>" is still outstanding when
 // the timeout fires. Every test that leans on that ordering is timed off this
 // value, which is why it is a wall clock as tight as the ordering allows.

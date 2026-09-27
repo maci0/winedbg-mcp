@@ -20,6 +20,10 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 - `WINEDBG_MCP_LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
   An unusable value stops the server at startup with the variable named, like
   the other two.
+- `.gitattributes` pinning LF line endings, so a checkout on Windows cannot give
+  the test fixture a CRLF shebang that fails to exec.
+- A statement of the supported platforms (Linux and macOS) in the README.
+  `winedbg_stop` needs POSIX process groups and the README claimed no OS.
 
 ### Changed
 
@@ -38,6 +42,10 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 
 ### Fixed
 
+- A reply that split a multi-byte character across two pipe reads decoded as two
+  replacement characters. The child's output now goes through a per-stream
+  `StringDecoder`, so a character the pipe cut in half is the one character it
+  is. The README claimed this already; the code did not do it.
 - `bun publish` runs the build first. `build/` is gitignored but is the whole
   published tarball, so a publish from a clean checkout shipped nothing, and a
   publish from a dirty one shipped whatever `build/` happened to contain.

@@ -81,10 +81,11 @@ class NodeDebuggerChild implements DebuggerChild {
       stream.on("error", (error) => {
         for (const listener of this.errorListeners) listener(error);
       });
-      // A pipe read ends wherever the writer's next write begins, which can be
-      // in the middle of a multi-byte character. Decoding each chunk on its own
-      // turns every such character into U+FFFD, so the decoder carries the
-      // partial sequence across reads instead.
+      // A read boundary is a byte boundary, not a character one, and where it
+      // falls is the pipe's business: a debuggee writing a character at a time
+      // hands the reader half of it. One decoder per stream holds the trailing
+      // bytes back until the rest arrives; decoding each read on its own turns
+      // every split character into U+FFFD.
       const decoder = new StringDecoder("utf8");
       stream.on("data", (data: Buffer) => {
         const chunk = decoder.write(data);

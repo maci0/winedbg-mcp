@@ -51,7 +51,7 @@ crafted. Each row is a record for sec-review, not a fix.
 | 7 | `stop()` clears the session and signals the child process group, but returns without waiting for it to exit (`src/session.ts:340-363`, `src/session.ts:195-201`). A client alternating `winedbg_start` and `winedbg_stop` leaves a live debugger and debuggee per cycle and can accumulate detached process groups faster than the 2s grace kill reaches them. | B1, B2 | Resource exhaustion: orphaned debuggees holding memory, CPU and the user's file access with no owner | [verified] Partial. The group is signalled with `SIGTERM`, escalating to `SIGKILL` after a 2s grace, and `tests/session.test.ts` covers the debuggee dying with the debugger. `stop()` itself returns on the signal, so a tool call is never held open by it; the wait happens where it costs nothing, in the next `start` (`awaitTerminations`) and in `WinedbgSession.shutdown`, which the process exit paths use so the escalation is not cut short by the exit. A client that stops and never starts again, and never exits, still relies on that escalation alone |
 | 8 | A `timeout` of up to 600000 holds a tool call for ten minutes, and a timed-out command leaves the session refusing commands until `winedbg_stop` destroys the debugging state (`README.md:120-124`). | B1 | Denial of service against the session, loss of the target's state | Partial: `winedbg_stop` and restart recover it (`src/session.ts:276-281`, `src/session.ts:299-303`) |
 | 9 | A reply is buffered up to 1M UTF-16 code units and returned whole, roughly 250k tokens of program-controlled text in one tool result (`README.md:126-134`). | B1, B3 | Cost and context exhaustion in the client; the model reads attacker-chosen text at length | Bounded per reply, unbounded in count (`src/session.ts:9`) |
-| 10 | Each chunk of child output is decoded on its own (`src/runtime.ts:73-76`), so a multibyte UTF-8 sequence split across two chunks becomes U+FFFD, and the trim at the cap cuts at a UTF-16 code unit (`src/session.ts:221-224`), which can split a surrogate pair. | B3 | Mangled program output and mangled dropped blocks, both read by the operator as a correct reply | Unmitigated; the drop is counted and reported (`src/session.ts:252`) but the mangling is not |
+| 10 | The trim at the cap cuts at a UTF-16 code unit (`src/session.ts`), which can split a surrogate pair. The read-boundary half of this row is closed: each output stream is decoded through a `StringDecoder` (`src/runtime.ts`), so a multibyte UTF-8 sequence split across two reads is the one character it is. | B3 | A mangled dropped block, read by the operator as a correct reply | [verified] Partial. The drop is counted and reported (`src/session.ts`), so what went missing is named, but the cut is still not a character boundary |
 | 11 | The child is given a process group of its own, so a SIGKILL of the server skips `stop()` entirely and the debugger and its debuggee survive it. | B2, B4 | Orphaned debuggee keeps running with no owner | [verified] Confirmed: `detached: true` (`src/runtime.ts:130`) |
 | 12 | Tool failures return the message the code produced (`README.md:176-185`), which for a failed spawn carries the resolved binary path. | B1 | Deployment reconnaissance: filesystem layout and interpreter paths handed to whoever asks | Unmitigated for spawn and OS errors (`src/tools.ts:97-101`). The session-state errors are a fixed set of five strings (`src/session.ts:72`, `src/session.ts:268`, `src/session.ts:271`, `src/session.ts:277`) and disclose nothing |
 | 13 | Nothing in the design records a command, an argument, a timeout or a reply size. | All | No trail to investigate an incident from | Unmitigated. The only output is the startup line and the error text (`src/index.ts:65`, `src/index.ts:17`) |
@@ -86,8 +86,8 @@ process holds, which is row 2.
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | Environment | `README.md:86-89` | Whole milliseconds, 1 to 600000 (`src/config.ts:56-67`) |
 | The rest of the process environment | Inherited by winedbg and by whatever winedbg starts | `README.md:79-84` | None; `spawn` passes no `env` (`src/runtime.ts:124-132`) |
 | The server's working directory | Inherited by the child; resolves a relative binary and a relative `args[0]` | `README.md:79-84` | None; `spawn` passes no `cwd` (`src/runtime.ts:124-132`) |
-| winedbg stdout and stderr | Child output stream, including the debuggee's | `README.md:110-112` | Decoded as UTF-8 per chunk, 1M UTF-16 code unit cap per reply, trimmed at a code unit; no content check (`src/runtime.ts:73-76`, `src/session.ts:9`, `src/session.ts:204-209`) |
-| SIGINT, SIGTERM, stdin `end`/`close`, process `exit`, transport close | Lifecycle | Session teardown (`src/index.ts`) | [verified] None needed; each routes to `shutdown()`, which stops the session and waits, bounded at 4s, for the debuggers it signalled to be gone. The synchronous `exit` handler cannot wait and signals only |
+| winedbg stdout and stderr | Child output stream, including the debuggee's | `README.md:110-112` | Decoded as UTF-8 per stream, so a character split across two reads reassembles; 1M UTF-16 code unit cap per reply, trimmed at a code unit; no content check (`src/runtime.ts:73-103`, `src/session.ts:9`, `src/session.ts:204-209`) |
+| SIGINT, SIGTERM, stdin `end`/`close`, process `exit`, transport close | Lifecycle | Session teardown (`src/index.ts:107-135`) | [verified] None needed; each routes to `shutdown()`, which stops the session and waits, bounded at 4s, for the debuggers it signalled to be gone. The synchronous `exit` handler cannot wait and signals only |
 | Startup line on stderr | Log | `README.md:97-99` | Reports both configuration values in effect (`src/config.ts:37-39`) |
 
 There is no network listener, no HTTP or RPC endpoint, no message consumer, no
@@ -319,11 +319,12 @@ server defends; it is a pipe.
   and the drop is reported in the reply rather than silently
   (`src/session.ts:9`, `src/session.ts:252`). The bound is per reply, not per
   session, so a program that prompts frequently can still be expensive in total.
-- **Integrity.** Each chunk of child output is decoded on its own
-  (`src/runtime.ts:73-76`), so a multibyte UTF-8 sequence split across two
-  chunks becomes U+FFFD, and the trim at the cap cuts at a UTF-16 code unit
-  (`src/session.ts:221-224`), which can split a surrogate pair. Both produce a
-  reply that looks complete and is not.
+- **Integrity.** The trim at the cap cuts at a UTF-16 code unit
+  (`src/session.ts`), which can split a surrogate pair, and that produces a
+  reply that looks complete and is not. A multibyte sequence split across two
+  reads used to have the same effect; each stream is now decoded through a
+  `StringDecoder` (`src/runtime.ts`), so the two halves reassemble into the one
+  character they are.
 
 ### B4, environment to server
 

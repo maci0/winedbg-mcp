@@ -1,0 +1,8 @@
+# A checkout is byte-identical on every platform, so a line ending is a property
+# of the file in the repository and not of whoever last edited it.
+* text=auto eol=lf
+
+# tests/fake-winedbg.js runs through its shebang, and a trailing CR turns the
+# interpreter path into "/usr/bin/env node\r", which fails to exec rather than to
+# run.
+*.js text eol=lf

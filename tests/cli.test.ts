@@ -5,9 +5,14 @@
 // message lands on are what a script and a shell redirect actually see.
 
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { parseCliArgs, UsageError } from "../src/cli.js";
 
-const ENTRY = new URL("../src/index.ts", import.meta.url).pathname;
+// fileURLToPath, not .pathname: a file: URL is percent-encoded, and on Windows
+// its pathname carries a leading slash the path does not have (C:\a becomes
+// /C:/a). Either way a checkout under a directory with a space or a non-ASCII
+// character in it spawns a path that does not exist.
+const ENTRY = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 // A cold bun start plus a compile of the entry point is slow on a loaded
 // machine. Past this the child is wedged, and a wedged child has to fail the
 // test rather than hang it.
