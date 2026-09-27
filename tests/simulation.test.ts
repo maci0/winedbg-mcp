@@ -440,11 +440,11 @@ const SEEDS: number[] = Array.from({ length: SEEDS_PER_SWEEP }, (_, index) => 1 
 
 describe("session simulation", () => {
   afterEach(() => {
-    delete process.env.WINEDBG_MCP_SIM_SEED;
+    delete process.env["WINEDBG_MCP_SIM_SEED"];
   });
 
   test("holds its invariants across a sweep of seeds", async () => {
-    const only = process.env.WINEDBG_MCP_SIM_SEED;
+    const only = process.env["WINEDBG_MCP_SIM_SEED"];
     const seeds = only === undefined ? SEEDS : [Number(only)];
     const run: string[] = [];
     for (const seed of seeds) {
