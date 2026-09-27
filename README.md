@@ -4,12 +4,15 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or higher)
-- [Wine](https://www.winehq.org/) (which includes `winedbg`)
+- [Bun](https://bun.sh/), the package manager, build tool and test runner here (`packageManager` in `package.json` pins the version CI uses)
+- [Wine](https://www.winehq.org/), which includes `winedbg`
+
+Node.js 18 or higher is only needed if you run the built `build/index.js`
+with `node` instead of `bun`.
 
 ## Installation
 
-1. Clone the repository or install the package.
+1. Clone the repository.
 2. Install dependencies:
    ```bash
    bun install
@@ -18,6 +21,9 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
    ```bash
    bun run build
    ```
+
+The build writes `build/index.js`. To run the server straight from source
+without a build step, use `bun run dev` (`bun run start` runs the built file).
 
 ## Configuration
 
@@ -63,7 +69,7 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 
 This server provides the following tools:
 
-- **`winedbg_start`**: Start or attach `winedbg`. Use this before running any commands. You can optionally provide arguments like the path to a `.exe` to launch, or a PID to attach to (e.g., `{"args": ["myapp.exe"]}`).
+- **`winedbg_start`**: Start `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works, such as the program to launch (e.g. `{"args": ["myapp.exe"]}`).
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
   Takes an optional `timeout` in milliseconds (default 30000, maximum 600000).
 - **`winedbg_stop`**: Stop the active `winedbg` session.
@@ -82,8 +88,9 @@ through the tools:
   out. If it never comes back (a `cont` into a program that does not stop), call
   `winedbg_stop` and start again.
 
-A single reply is buffered up to 1 MB. Past that the oldest output is dropped and
-the reply says how much went missing rather than returning a silently short answer.
+A single reply is buffered up to 1M characters. Past that the oldest output is
+dropped and the reply says how much went missing rather than returning a silently
+short answer.
 
 ## Usage Example
 
@@ -105,7 +112,8 @@ speaks the same `Wine-dbg>` prompt protocol, so it runs without Wine installed, 
 checks the tool-argument validation in `src/validate.ts` and the environment
 parsing in `src/config.ts`.
 
-CI runs both on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs both on every pull request and on every
+push to `main`.
 
 ## License
 
