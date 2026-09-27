@@ -82,9 +82,14 @@ function parseLogLevel(raw: string | undefined): LogLevel {
 
 function parseBinary(raw: string | undefined): string {
   if (raw === undefined) return DEFAULT_BINARY;
+  // Trimmed, like the other two values, and trimmed for more than the emptiness
+  // test: a value quoted in a shell or carried in a YAML block scalar arrives
+  // with the whitespace still on it, and a path that begins or ends in a space
+  // is a path nothing resolves. The same trim makes a value that is nothing but
+  // whitespace, including a non-breaking space or a BOM, the empty value it is.
+  const value = raw.trim();
   // Set-to-empty is a deployment mistake, not a request for the default: spawn("")
   // fails with ENOENT once someone tries to start a session.
-  const value = raw.trim();
   if (value.length === 0) {
     throw new Error(`${BINARY_VAR} is set but empty. Unset it to use "${DEFAULT_BINARY}".`);
   }
@@ -93,8 +98,6 @@ function parseBinary(raw: string | undefined): string {
   if (value.includes("\0")) {
     throw new Error(`${BINARY_VAR} contains a NUL byte, which no executable path can carry.`);
   }
-  // Trimmed, like every other value here: a path whose surrounding spaces came
-  // from a YAML block or an env file would otherwise spawn a name nothing has.
   return value;
 }
 

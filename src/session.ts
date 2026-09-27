@@ -42,6 +42,13 @@ const PROMPT_OVERLAP = PROMPT.length - 1;
 // the same way a second line would.
 export const LINE_BREAKS = /[\n\r\v\f\0\u0085\u2028\u2029]/;
 
+// How far either side of a cut is searched for the character boundary it lands
+// on. A character longer than this is a joined sequence of a length nobody
+// types, and the search stops rather than walking a megabyte of one.
+const CLUSTER_WINDOW_CHARS = 64;
+
+const CLUSTER_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 /**
  * Code points in `text[0, end)`, which is what a reader counts, not the UTF-16
  * units String#length reports. Counted over a range rather than over a
@@ -64,6 +71,28 @@ function isHighSurrogate(unit: number): boolean {
 
 function isLowSurrogate(unit: number): boolean {
   return unit >= 0xdc00 && unit <= 0xdfff;
+}
+
+/**
+ * The first index at or after `from` that starts a character a reader would call
+ * one, which is where UAX #29 puts a grapheme cluster boundary.
+ *
+ * `from` is expected to already be a code point boundary. The search is a
+ * bounded window rather than a walk over the buffer: a trim runs on every chunk
+ * a chatty debuggee prints once the cap is reached, and segmenting a megabyte
+ * each time costs more than the megabyte holds. A boundary before `from` is
+ * skipped, so a window that opens in the middle of a character reports nothing
+ * false, and a window with no boundary in it at all leaves `from` alone, which
+ * is a code point boundary and so splits no pair.
+ */
+function nextCharacterBoundary(text: string, from: number): number {
+  const start = Math.max(0, from - CLUSTER_WINDOW_CHARS);
+  const end = Math.min(text.length, from + CLUSTER_WINDOW_CHARS);
+  for (const { index } of CLUSTER_SEGMENTER.segment(text.slice(start, end))) {
+    const boundary = start + index;
+    if (boundary >= from) return boundary;
+  }
+  return from;
 }
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
@@ -456,23 +485,31 @@ export class WinedbgSession {
     // reports. droppedChars counts code points instead, because that is the unit
     // the notice names them in.
     if (this.buffer.length <= MAX_BUFFER_CHARS) return;
-    const cut = this.charCountToCodePointBoundary(this.buffer.length - BUFFER_RETAIN_CHARS);
+    const cut = this.characterBoundary(this.buffer.length - BUFFER_RETAIN_CHARS);
     this.droppedChars += countCodePoints(this.buffer, cut);
     this.dropBufferPrefix(cut);
   }
 
   /**
-   * Move a cut off the middle of a surrogate pair, whichever half it lands on.
-   * Characters outside the BMP take two code units, and a cut between the halves
-   * leaves a lone surrogate that no JSON encoder or terminal will render as the
-   * character it was. A cut on a low half moves back; one just past a high half
-   * moves forward, since dropping the low half is what unpaired it.
+   * The nearest index at or after `count` that begins a character a reader would
+   * call one: a code point, and the start of that point's cluster rather than
+   * its middle.
+   *
+   * A cut between the halves of a surrogate pair leaves a lone surrogate that no
+   * JSON encoder or terminal renders as the character it was, so a cut landing
+   * on a low half moves back over the pair. Rounding to a code point is not
+   * enough on its own: a cut that lands on a combining mark reattaches it to
+   * whatever now precedes the reply, and a cut inside a joined emoji sequence
+   * hands back a headless stranger. So the cut goes on to the next character
+   * boundary, which is the whole of the character the code point is part of.
    */
-  private charCountToCodePointBoundary(count: number) {
+  private characterBoundary(count: number) {
     if (count <= 0 || count >= this.buffer.length) return count;
-    if (isLowSurrogate(this.buffer.charCodeAt(count))) return count - 1;
-    if (count + 1 < this.buffer.length && isHighSurrogate(this.buffer.charCodeAt(count - 1))) return count + 1;
-    return count;
+    // A cut on a low half is the half that lost its partner, so the pair belongs
+    // to the prefix with it. A cut on a high half already starts a character,
+    // and the boundary that ends it is the next one the segmenter reports.
+    const codePoint = isLowSurrogate(this.buffer.charCodeAt(count)) ? count - 1 : count;
+    return nextCharacterBoundary(this.buffer, codePoint);
   }
 
   private clearBuffer() {

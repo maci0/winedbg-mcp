@@ -129,6 +129,20 @@ describe("loadConfig", () => {
     );
   });
 
+  test("a binary path keeps no whitespace around it either", () => {
+    // A path with a space on the end of it names no executable, and spawn()
+    // answers that with an ENOENT that names neither the space nor the variable.
+    expect(loadConfig({ [BINARY_VAR]: " /opt/wine/bin/winedbg " }).binary).toBe("/opt/wine/bin/winedbg");
+    // The same holds for the non-breaking space and the byte order mark a value
+    // carried over from a document arrives with, which trim removes along with
+    // the ASCII kind. A value holding nothing but those is the empty value it
+    // reads as, which is the error above.
+    const nonBreaking = String.fromCodePoint(0xa0);
+    const byteOrderMark = String.fromCodePoint(0xfeff);
+    expect(loadConfig({ [BINARY_VAR]: `${nonBreaking}winedbg${byteOrderMark}` }).binary).toBe("winedbg");
+    expect(() => loadConfig({ [BINARY_VAR]: `${nonBreaking}${byteOrderMark}` })).toThrow(/empty/);
+  });
+
   test("the startup line names every variable and its active value", () => {
     const line = describeConfig(loadConfig({ [BINARY_VAR]: "/opt/wine/bin/winedbg" }));
     expect(line).toContain(`${BINARY_VAR}=/opt/wine/bin/winedbg`);

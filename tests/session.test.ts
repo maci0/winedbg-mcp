@@ -611,3 +611,91 @@ describe("shutdown", () => {
     expect(s.isRunning()).toBe(false);
   });
 });
+
+/**
+ * The overflow cut, driven through the runtime port instead of a child process.
+ *
+ * Which character the cut lands on is a function of the buffer length at the
+ * moment the cap is checked, and over a real pipe that is a function of read
+ * boundaries the test does not control, so it cannot be pinned against a child.
+ * The port hands over exactly the chunks written here, which puts the cut at a
+ * known offset into a known text on every run.
+ */
+describe("the overflow cut", () => {
+  // MAX_BUFFER_CHARS is a module constant the port cannot move, so the cut is
+  // reached by writing a read that carries the buffer past it. BUFFER_RETAIN is
+  // three quarters of that cap, so the cut falls RETAIN_CHARS from the end of
+  // the reply and its offset is fixed by that rather than by the arrival order.
+  const CAP_CHARS = 1024 * 1024;
+  const RETAIN_CHARS = Math.floor((CAP_CHARS * 3) / 4);
+  const COMBINING_ACUTE = "\u0301";
+  const CLUSTER = `e${COMBINING_ACUTE}`;
+  // A joined sequence, where every code point after the first belongs to the one
+  // before it: a cut anywhere inside it hands back a fraction of one emoji.
+  const FAMILY = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+
+  /** A debugger that answers with exactly the chunks a test hands it. */
+  class ScriptedDebugger implements DebuggerChild {
+    readonly pid = 1;
+    // The commands are never read, only the replies that follow them, so the
+    // write side is a sink.
+    readonly stdin = { write: () => {} };
+    private readonly listeners: ((chunk: string) => void)[] = [];
+
+    onData(listener: (chunk: string) => void): void {
+      this.listeners.push(listener);
+    }
+    onClose(): void {}
+    onError(): void {}
+    killTree(): void {}
+    closePipes(): void {}
+
+    emit(chunk: string): void {
+      for (const listener of this.listeners) listener(chunk);
+    }
+  }
+
+  /** Run one command whose reply is `body`, and return it without the notice. */
+  async function replyFrom(body: string): Promise<string> {
+    const fake = new ScriptedDebugger();
+    const s = new WinedbgSession(
+      "winedbg",
+      READY_TIMEOUT_MS,
+      { clock: nodeRuntime().clock, spawn: () => fake },
+      createLogger("debug", () => {}),
+    );
+    const started = s.start();
+    // The first prompt reaches the session a microtask after start(), once
+    // launch() has got as far as registering the listeners.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    fake.emit("Wine-dbg>");
+    await started;
+    const answered = s.executeCommand("bt", IN_FLIGHT_TIMEOUT_MS);
+    fake.emit(body);
+    fake.emit("Wine-dbg>");
+    const out = await answered;
+    s.stop();
+    const notice = out.slice(0, out.indexOf("\n"));
+    expect(notice).toMatch(/^\[\d+ characters of earlier output dropped: buffer limit\]$/);
+    return out.slice(notice.length + 1);
+  }
+
+  test("starts the reply on a character with a base, not on a bare mark", async () => {
+    // One unit past the cap is an odd count, and every odd offset of this text
+    // is the combining mark of a cluster whose "e" the cut would have left
+    // behind. A reply opening on the mark attaches an accent to the notice
+    // above it instead of to its own letter.
+    const tail = await replyFrom(`${CLUSTER.repeat(CAP_CHARS / 2)}e`);
+    expect(tail).toBe(`${CLUSTER.repeat(Math.floor((RETAIN_CHARS - 1) / 2))}e`);
+  });
+
+  test("starts the reply on a whole emoji, not on part of a sequence", async () => {
+    // Whole sequences plus four units, so the cut lands four units into one of
+    // them: past a joiner and inside the next emoji, which is a split surrogate
+    // pair and a split sequence at once. The whole of that sequence is dropped,
+    // so the reply starts on the one after it.
+    const whole = (CAP_CHARS / FAMILY.length) * (3 / 4) - 1;
+    const tail = await replyFrom(`${FAMILY.repeat(CAP_CHARS / FAMILY.length)}END!`);
+    expect(tail).toBe(`${FAMILY.repeat(whole)}END!`);
+  });
+});
