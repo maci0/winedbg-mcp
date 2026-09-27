@@ -50,7 +50,7 @@ this repository.
 | 5 | The stdio transport has no authentication. Any process that inherits or reaches the fds is a full client. | B1 | Same as #1, reached through a weaker path | Unmitigated; the only control is how the client is launched |
 | 6 | If `stop()` clears the session before the process group is gone, a client alternating `winedbg_start` and `winedbg_stop` leaves a live debugger per cycle and can accumulate detached process groups faster than they die. | B1, B2 | Resource exhaustion: orphaned debuggees holding memory, CPU and the user's file access with no owner | Partial: a start that never reaches its prompt has its child killed (`README.md:149`), so that path does not orphan. `stop()` is still unstated; check the code |
 | 7 | A timed-out command leaves the session refusing commands until `winedbg_stop` destroys the debugging state (`README.md:101-105`). | B1 | Denial of service against the session, loss of the target's state | Partial: `winedbg_stop` and restart recover it |
-| 8 | A reply is buffered up to 1M characters and returned whole, roughly 250k tokens of program-controlled text in one tool result (`README.md:107-113`). | B1, B3 | Cost and context exhaustion in the client; the model reads attacker-chosen text at length | Bounded per reply, unbounded in count |
+| 8 | A reply is buffered up to 1M code points and returned whole, roughly 250k tokens of program-controlled text in one tool result (`README.md:107-113`). | B1, B3 | Cost and context exhaustion in the client; the model reads attacker-chosen text at length | Bounded per reply, unbounded in count |
 | 9 | Whether the child is given a process group of its own is not stated. If it is, the debugger and its debuggee survive a SIGKILL of the server. | B2, B4 | Orphaned debuggee keeps running with no owner | Unanchored; check the spawn options in the code |
 | 10 | Tool failures return the message the code produced (`README.md:140-149`), which for a failed spawn carries the resolved binary path. | B1 | Deployment reconnaissance: filesystem layout and interpreter paths handed to whoever asks | Unmitigated for spawn and OS errors. The session-state errors are a fixed set of five strings (`README.md:143-149`) and disclose nothing |
 | 11 | Nothing in the design records a command, an argument, a timeout or a reply size. | All | No trail to investigate an incident from | Unmitigated |
@@ -92,7 +92,7 @@ compare against `tools/list` when the code lands:
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | Environment | `README.md:67-70` | Whole milliseconds, 1 to 600000 |
 | The rest of the process environment | Inherited by winedbg and by whatever winedbg starts | `README.md:60-65` | None |
 | The server's working directory | Inherited by the child; resolves a relative binary and a relative `args[0]` | `README.md:60-65` | None |
-| winedbg stdout and stderr | Child output stream, including the debuggee's | `README.md:91-93` | Decoded as UTF-8, 1M character cap per reply counted in decoded characters, dropped at character boundaries; no content check |
+| winedbg stdout and stderr | Child output stream, including the debuggee's | `README.md:91-93` | Decoded as UTF-8, 1M code point cap per reply counted in decoded code points, dropped at code point boundaries; no content check |
 | Startup line on stderr | Log | `README.md:78-80` | Reports both configuration values in effect |
 
 Signals and stream events the server must handle (shutdown, stdin `end`,
@@ -165,6 +165,14 @@ which is program-controlled text. The same pipe is how a debuggee returns what
 it read from the environment it inherited through B2, and nothing in the design
 classifies what comes back.
 
+No text at this boundary is an identity. Nothing the child prints is compared
+for equality against a stored value, used as a filename, a path or a lookup
+key, so no normalization form is chosen for it: the decoded text is passed on as
+it arrives, and NFC and NFD spellings of the same output are two different
+replies rather than one reply that fails to match. If a later revision compares
+child output against anything, that comparison needs a normalization policy of
+its own.
+
 **B4: environment to server.** Two variables are read once, at startup
 (`README.md:57-58`, `README.md:67-70`): `WINEDBG_MCP_BINARY` names the executable
 that B2 spawns, and `WINEDBG_MCP_READY_TIMEOUT_MS` bounds the first prompt
@@ -208,7 +216,7 @@ server defends; it is a pipe.
   persists after the session ends.
 - **Integrity of the debugging result.** Register values, backtraces and program
   output that the caller reads as fact, and that B3 lets a program forge.
-- **The caller's model context.** Up to 1M characters of program-controlled text
+- **The caller's model context.** Up to 1M code points of program-controlled text
   per reply reach the LLM (B1, `README.md:107-113`).
 - **The launcher's environment.** Whatever the host puts in the variables used
   to start this server. A debuggee can read all of it and print it back through
@@ -283,7 +291,7 @@ here, the code paths are not.
   client, including output of programs the caller did not intend to expose, and
   a program that dumps the environment it inherited at B2 reaches the client
   this way.
-- **Denial of service.** Continuous output is bounded to 1M characters and the
+- **Denial of service.** Continuous output is bounded to 1M code points and the
   drop is reported in the reply rather than silently (`README.md:107-113`).
   The bound is per reply, not per session, so a program that prompts frequently
   can still be expensive in total.
@@ -390,7 +398,7 @@ carried out.
 - **A debugged program dictates the answer.** The program prints the prompt
   string and a clean-looking result of its own, then its real output follows.
   The caller sees the reply end where the program chose (`README.md:91-93`).
-- **A debugged program spends the caller's tokens.** It emits 1M characters per
+- **A debugged program spends the caller's tokens.** It emits 1M code points per
   prompt in a loop (`README.md:107-113`).
 - **Read another process.** `winedbg_start` with a PID the server's user can
   signal attaches the debugger to it, and `winedbg_execute` reads its memory
@@ -430,8 +438,8 @@ respect to the specification in `README.md`. The limits on it are these:
   whether the reply is framed on a channel the debuggee cannot write; whether
   `stop()` waits for the child to exit; whether tool errors are sanitised
   before they reach the caller; whether any command, argument or start
-  attempt is logged; and whether the reply buffer counts decoded characters,
-  drops at a character boundary and rejects every line terminator the README
+  attempt is logged; and whether the reply buffer counts decoded code points,
+  drops at a code point boundary and rejects every line terminator the README
   now names (`README.md:95-100`, `README.md:107-113`). Each of those answers
   changes a row in the summary.
 - An earlier revision of this file carried line numbers into `src/` and

@@ -104,13 +104,13 @@ through the tools:
   out. If it never comes back (a `cont` into a program that does not stop), call
   `winedbg_stop` and start again.
 
-A single reply is buffered up to 1M characters. The cap counts characters of decoded
-text, not bytes, so it means the same thing whatever the target prints: the child's
-output is decoded as UTF-8, a byte sequence that is not valid UTF-8 becomes U+FFFD
-rather than being passed through, and one emoji or CJK character costs one unit however
-many bytes it took. Past the cap the oldest output is dropped at character boundaries,
-so a dropped block never starts in the middle of a multi-byte sequence, and the reply
-says how many characters went missing rather than returning a silently short answer.
+A single reply is buffered up to 1M code points. The cap counts code points of
+decoded text, not bytes and not UTF-16 code units, so it means the same thing
+whatever the target prints: the child's output is decoded as UTF-8, a byte sequence
+that is not valid UTF-8 becomes U+FFFD rather than being passed through, and one CJK
+character or one astral emoji costs one unit however many bytes it took. Past the
+cap the oldest output is dropped at code point boundaries, so a dropped block never
+starts mid-sequence, and the reply reports how many code points went missing.
 
 ## Usage Example
 
