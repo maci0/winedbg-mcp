@@ -3,6 +3,8 @@ import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "
 // The only deployment knobs. An MCP client launches this server with no argv it
 // controls beyond the script path, so env is the one place a deployment can say
 // where winedbg lives and how long a cold wineprefix may take to answer.
+// The deployment variable that overrides the binary, named in the error a
+// mistyped path produces.
 export const BINARY_VAR = "WINEDBG_MCP_BINARY";
 export const READY_TIMEOUT_VAR = "WINEDBG_MCP_READY_TIMEOUT_MS";
 const KNOWN_VARS: readonly string[] = [BINARY_VAR, READY_TIMEOUT_VAR];

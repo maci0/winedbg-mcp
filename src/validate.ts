@@ -13,9 +13,17 @@ export function requireStringArray(value: unknown, field: string): string[] {
   // Narrowed item by item rather than asserted: Array.isArray only proves the
   // array, not its elements, and this list goes straight to spawn.
   const items: string[] = [];
-  for (const item of value) {
+  for (const [index, item] of value.entries()) {
     if (typeof item !== "string") {
       throw new McpError(ErrorCode.InvalidParams, `${field} must be an array of strings`);
+    }
+    // A NUL cannot reach execve, so spawn() rejects the whole call with
+    // ERR_INVALID_ARG_VALUE naming neither the argument nor its index.
+    if (item.includes("\0")) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `${field}[${index}] contains a NUL byte, which no argument can carry`
+      );
     }
     items.push(item);
   }

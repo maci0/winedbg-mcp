@@ -10,6 +10,7 @@
 // kills it in afterEach, so nothing is shared between tests.
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { BINARY_VAR } from "../src/config.js";
 import { DEFAULT_READY_TIMEOUT_MS } from "../src/constants.js";
 import { WinedbgSession } from "../src/session.js";
 
@@ -66,6 +67,28 @@ describe("start", () => {
     await expect(s.start()).rejects.toThrow();
     // A process that never started is not a session: leaving it set would refuse
     // every later start with "already running".
+    expect(s.isRunning()).toBe(false);
+  });
+
+  test("names the binary and its variable when the executable is missing", async () => {
+    const s = new WinedbgSession("/nonexistent/winedbg-fixture");
+    session = s;
+    // "spawn /nonexistent/winedbg-fixture ENOENT" leaves an operator with
+    // nothing to check.
+    const failure = await s.start().then(
+      () => "",
+      (error: Error) => error.message
+    );
+    expect(failure).toContain("ENOENT");
+    expect(failure).toContain(BINARY_VAR);
+  });
+
+  test("rejects with the offending argv when spawn cannot carry it", async () => {
+    const s = new WinedbgSession(process.execPath);
+    session = s;
+    // A NUL in argv throws from spawn() before a child exists; the raw error
+    // names neither the argument nor the program it came from.
+    await expect(s.start([FAKE, "a\0b"])).rejects.toThrow(/Failed to start .*a\\u0000b/);
     expect(s.isRunning()).toBe(false);
   });
 

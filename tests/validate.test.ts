@@ -22,6 +22,12 @@ describe("requireStringArray", () => {
     expect(() => requireStringArray([1234], "args")).toThrow(/array of strings/);
     expect(() => requireStringArray([null], "args")).toThrow(/array of strings/);
   });
+
+  test("rejects a NUL in an argument, naming its index", () => {
+    // spawn() would otherwise reject the whole call with ERR_INVALID_ARG_VALUE,
+    // which names neither the argument nor where it came from.
+    expect(() => requireStringArray(["app.exe", "a\0b"], "args")).toThrow(/args\[1\].*NUL/);
+  });
 });
 
 describe("requireString", () => {

@@ -1,3 +1,4 @@
+import { BINARY_VAR } from "./config.js";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
 import { nodeRuntime } from "./runtime.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
@@ -79,13 +80,50 @@ export class WinedbgSession {
     this.awaitingAbandonedPrompt = false;
     this.droppedChars = 0;
 
-    const child = this.runtime.spawn(this.binary, args);
+    let child: DebuggerChild;
+    try {
+      child = this.runtime.spawn(this.binary, args);
+    } catch (error) {
+      // spawn() throws before a child exists when an argument cannot be carried,
+      // and its message names neither the variable nor the argument. Nothing is
+      // running, so refusing the next start is not a concern here. Rejected
+      // rather than thrown: every other start failure arrives that way, and a
+      // caller with only a .catch() on the result would miss this.
+      return Promise.reject(
+        new Error(
+          `Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      );
+    }
     this.process = child;
 
     return new Promise<void>((resolve, reject) => {
       // Events from an already-replaced child (a kill lands after the next
       // start) must not touch the current session's state.
       const isCurrent = () => this.process === child;
+
+      // Report a session-ending failure to whoever is waiting on it, whichever
+      // event carried it: the child exiting, the child erroring, or one of its
+      // output pipes failing.
+      const fail = (error: Error) => {
+        const failStart = !this.isReady && this.initReject !== null;
+        if (failStart) this.initReject = null;
+        this.clearReadyTimer();
+        // A child that never got a pid never ran, so it is not a session:
+        // leaving it set would refuse every later start with "already running"
+        // until the close event caught up. A child that did run keeps its
+        // handle, so stop() can still reach a debugger and its debuggee.
+        if (child.pid === undefined) {
+          this.process = null;
+          this.isReady = false;
+          this.awaitingAbandonedPrompt = false;
+        }
+        if (failStart) reject(error);
+        if (this.currentPromise) {
+          this.currentPromise.reject(error);
+          this.releaseCurrent();
+        }
+      };
 
       this.initReject = reject;
       this.readyTimer = this.runtime.clock.setTimeout(() => {
@@ -135,19 +173,14 @@ export class WinedbgSession {
 
       child.onError((error) => {
         if (!isCurrent()) return;
-        this.clearReadyTimer();
-        const initReject = this.isReady ? null : this.initReject;
-        this.initReject = null;
-        // A child that never got a pid never ran, so it is not a session: leaving
-        // it set would refuse every later start with "already running" until the
-        // close event caught up. A child that did run keeps its handle, so stop()
-        // can still reach a debugger and its debuggee.
-        if (child.pid === undefined) {
-          this.process = null;
-          this.isReady = false;
-          this.awaitingAbandonedPrompt = false;
-        }
-        this.failChild(error, initReject);
+        // "spawn winedbg ENOENT" names neither the variable that carries the
+        // path nor what to check, and it is the failure a mistyped binary
+        // produces on every deployment.
+        const message =
+          child.pid === undefined
+            ? `Failed to run ${this.binary}${args.length > 0 ? ` with args ${JSON.stringify(args)}` : ""}: ${error.message}. Check ${BINARY_VAR} and that the executable is on PATH.`
+            : error.message;
+        fail(new Error(message));
       });
     });
   }
