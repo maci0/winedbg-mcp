@@ -233,13 +233,19 @@ describe("executeCommand", () => {
     expect(s.isRunning()).toBe(true);
   });
 
-  test("caps a huge reply and says how much it dropped", async () => {
-    const s = await startedSession();
-    const out = await s.executeCommand(`noise:${OVERFLOW_CHARS}`);
-    expect(out).toMatch(/characters of earlier output dropped/);
-    expect(out.length).toBeLessThan(OVERFLOW_CHARS);
-    expect(await s.executeCommand("bt")).toBe("ran: bt");
-  });
+  // The same 2MB as the dribble fixture below, written in one piece, so the
+  // budget is set for pushing it through a pipe rather than for the assertion.
+  test(
+    "caps a huge reply and says how much it dropped",
+    async () => {
+      const s = await startedSession();
+      const out = await s.executeCommand("noise:" + OVERFLOW_CHARS);
+      expect(out).toMatch(/characters of earlier output dropped/);
+      expect(out.length).toBeLessThan(OVERFLOW_CHARS);
+      expect(await s.executeCommand("bt")).toBe("ran: bt");
+    },
+    20000
+  );
 
   // The fixture dribbles 2MB in 8192-byte pieces, so this is 256 child writes and
   // 256 parent reads of a buffer sitting at its cap. It takes seconds on a quiet

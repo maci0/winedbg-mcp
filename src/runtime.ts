@@ -71,12 +71,22 @@ class NodeDebuggerChild implements DebuggerChild {
 
     this.stdin = child.stdin;
     for (const stream of [child.stdout, child.stderr]) {
+      if (!stream) continue;
+      // A pipe the debugger held open can still break under it, and a read error
+      // arrives as an 'error' on the stream. Nothing listens for one, and node
+      // turns that into an uncaught exception: the server dies mid-session with
+      // a debugger and its debuggee still running and nobody left to signal
+      // them. The session settles whatever it is waiting on with the reason,
+      // which is the same path a process 'error' takes.
+      stream.on("error", (error) => {
+        for (const listener of this.errorListeners) listener(error);
+      });
       // A pipe read ends wherever the writer's next write begins, which can be
       // in the middle of a multi-byte character. Decoding each chunk on its own
       // turns every such character into U+FFFD, so the decoder carries the
       // partial sequence across reads instead.
       const decoder = new StringDecoder("utf8");
-      stream?.on("data", (data: Buffer) => {
+      stream.on("data", (data: Buffer) => {
         const chunk = decoder.write(data);
         if (chunk.length > 0) {
           for (const listener of this.dataListeners) listener(chunk);
@@ -84,7 +94,7 @@ class NodeDebuggerChild implements DebuggerChild {
       });
       // Whatever the last read held of an unfinished character is still text the
       // debugger wrote, and the close event is the last chance to hand it over.
-      stream?.on("end", () => {
+      stream.on("end", () => {
         const tail = decoder.end();
         if (tail.length > 0) {
           for (const listener of this.dataListeners) listener(tail);

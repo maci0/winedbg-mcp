@@ -48,6 +48,14 @@ function describeExit(code: number | null, signal: NodeJS.Signals | null): strin
  * stdout/stderr stream is the prompt it prints after each command, and a
  * program under debug writes to the same pipes. Every rule below follows from
  * that, so a reply is what sits between two prompts and nothing else.
+ *
+ * Concurrency: the server hands tool calls in from the event loop, so several
+ * can be in flight at once, and they all reach this one object. Every guard
+ * here and every state change it makes sits in a single synchronous block, so
+ * a check and the claim it guards cannot be separated by another task: two
+ * callers racing for the command slot produce one winner and one refusal, never
+ * two commands sharing a reply. A session is confined to the thread that built
+ * it; it is not safe to share one across worker threads.
  */
 export class WinedbgSession {
   private process: DebuggerChild | null = null;

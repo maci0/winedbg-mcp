@@ -226,6 +226,13 @@ prints the seed that produced it:
 WINEDBG_MCP_SIM_SEED=1014 bun test tests/simulation.test.ts
 ```
 
+`tests/concurrency.test.ts` drives `callTool` the way the server does, with
+several tool calls in flight at once on one session: starts racing each other,
+two commands racing for the single command slot, a stop racing an in-flight
+command, and a burst where every answer names the command that asked for it.
+The server hands tool calls in from the event loop without serializing them, so
+that is the case worth pinning.
+
 `tests/validate.test.ts` covers the tool-argument boundary and
 `tests/config.test.ts` the environment parsing described above.
 `tests/cli.test.ts` spawns the entry point to pin the exit codes and which
