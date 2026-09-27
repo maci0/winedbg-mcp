@@ -9,13 +9,13 @@ source; the rest are still read off the README.
 
 The repository holds the server: `src/`, `tests/`, `package.json`,
 `tsconfig.json`, `bun.lock` and a CI workflow that runs the typecheck and the
-suite (`README.md:7-16`). The server is described in prose in `README.md`, and
-implemented in `src/`: the entry point and tool dispatch in `src/index.ts`, the
-tool list and the call handler in `src/tools.ts`, the session, framing and
-reply buffer in `src/session.ts`, the process and clock the session reaches the
-outside world through in `src/runtime.ts`, the environment parsing in
-`src/config.ts`, the tool argument checks in `src/validate.ts` and the shared
-limits in `src/constants.ts`.
+suite. The server is described in prose in `README.md`, and implemented in
+`src/`: the entry point and tool dispatch in `src/index.ts`, the command line
+in `src/cli.ts`, the tool list and the call handler in `src/tools.ts`, the
+session, framing and reply buffer in `src/session.ts`, the process and clock
+the session reaches the outside world through in `src/runtime.ts`, the
+environment parsing in `src/config.ts`, the tool argument checks in
+`src/validate.ts` and the shared limits in `src/constants.ts`.
 
 Every claim below is split by how it is supported:
 
@@ -73,6 +73,7 @@ process holds, which is row 2.
 | Entry point | Type | Reaches | Validation |
 | --- | --- | --- | --- |
 | JSON-RPC over stdio | Transport | client configuration, `README.md:57-72` | None at the transport (`src/index.ts:57`) |
+| Command-line arguments | Process argv, set by whoever launches the server, printed to the operator on an unknown one | The command line section of `README.md` | Only `-h`, `--help` and `--version` are accepted; every other argument, including a positional one, raises a usage error naming it and exits 2, before the environment is read (`src/cli.ts:49-62`, `src/index.ts:19-36`). No argument value reaches the child |
 | Runtime and path the client launches | Deployment choice, `bun` or `node` 18+ on the built file, or the sources under `bun run dev` | `README.md:37-38`, `README.md:52-53` | None. The client configuration pins `bun` (`README.md:63`); the README also sanctions `node`, and the `node` requirement is a floor with no upper bound |
 | `tools/list` | Request | A fixed tool list built once (`src/tools.ts:16`, `src/index.ts:35-37`) | None needed |
 | `winedbg_start` `args` | Tool argument, reaches the child's argv | `README.md:103` | None stated; the array is passed through unchanged, with no length or content check, after an element-wise string check (`src/validate.ts:8-23`, `src/tools.ts:77`) |

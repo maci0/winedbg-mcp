@@ -4,9 +4,32 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
+import { parseCliArgs, UsageError } from "./cli.js";
 import { WinedbgSession } from "./session.js";
 import { TOOLS, callTool } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
+
+// The command line is resolved before the environment, so --help and --version
+// still work in a deployment whose environment the server would refuse to run
+// on.
+const argv = process.argv.slice(2);
+try {
+  const action = parseCliArgs(argv);
+  if (action.kind === "help") {
+    process.stdout.write(action.usage);
+    process.exit(0);
+  }
+  if (action.kind === "version") {
+    process.stdout.write(`${action.version}\n`);
+    process.exit(0);
+  }
+} catch (error) {
+  if (!(error instanceof UsageError)) throw error;
+  process.stderr.write(
+    `winedbg-mcp: ${error.message}\nTry 'winedbg-mcp --help' for the accepted arguments.\n`
+  );
+  process.exit(2);
+}
 
 // Read the environment before anything else: a bad value stops the server here,
 // with the variable named, instead of surfacing later as a spawn or start failure.

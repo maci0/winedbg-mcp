@@ -5,29 +5,31 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 ## Status
 
 The server is implemented and tested. `src/` holds the MCP entry point, the
-winedbg session state machine, the environment parsing and the tool-argument
-validation; `build/` is the compiled output of `bun run build`; `tests/` covers
-all of those, and CI (`.github/workflows/ci.yml`) runs the typecheck and the
-suite. The session tests drive `WinedbgSession` against a stand-in that speaks
-the same `Wine-dbg>` prompt protocol, so the suite needs no Wine. No test here
-has been run against a real `winedbg`: the debugger is the one thing the fixtures
-replace, so the suite proves the prompt protocol and the tool argument handling,
-not Wine itself. See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), which is
-still written against this README as a specification rather than against the
-source, and says so. [`CHANGELOG.md`](CHANGELOG.md) records what changed in each
-release.
+winedbg session state machine, the environment parsing, the command-line
+parsing and the tool-argument validation; `build/` is the compiled output of
+`bun run build`; `tests/` covers all of those, and CI (`.github/workflows/ci.yml`)
+runs the typecheck and the suite. The session tests drive `WinedbgSession`
+against a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the
+suite needs no Wine. No test here has been run against a real `winedbg`: the
+debugger is the one thing the fixtures replace, so the suite proves the prompt
+protocol and the tool argument handling, not Wine itself. See
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), which is still written against
+this README as a specification rather than against the source, and says so.
+[`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.
 
 Source layout, one concern per module:
 
 | Path | Concern |
 | --- | --- |
 | `src/index.ts` | entrypoint: config load, transport, process lifecycle |
+| `src/cli.ts` | the command line: `--help`, `--version`, argument errors |
 | `src/tools.ts` | the MCP tool list and the call dispatch |
 | `src/validate.ts` | validation of untyped tool arguments |
 | `src/session.ts` | the winedbg child process and its prompt protocol |
 | `src/runtime.ts` | the process and clock the session reaches the outside world through |
 | `src/config.ts` | reading and validating the environment |
 | `src/constants.ts` | defaults and limits shared across the above |
+| `src/version.ts` | the version string reported to MCP clients |
 
 ## Prerequisites
 
@@ -141,6 +143,35 @@ unpaired surrogate for that character.
 4. Call `winedbg_execute` with `{"command": "bt"}` to get a backtrace.
 5. Call `winedbg_stop` when finished.
 
+## Command line
+
+The server takes no positional arguments and no options other than the two
+below. Everything else is the environment, and a flag does not exist to
+override it, so a client configuration cannot pass a misspelled flag and have
+the server start on the defaults anyway.
+
+```
+Usage: winedbg-mcp [OPTION]
+
+Options:
+  -h, --help       Print this help and exit
+      --version    Print the version and exit
+```
+
+| Invocation | Stream | Exit |
+| --- | --- | --- |
+| `winedbg-mcp` | Serves JSON-RPC on stdin/stdout | 0 on SIGINT, SIGTERM, or end of stdin |
+| `winedbg-mcp --help` | Help on stdout | 0 |
+| `winedbg-mcp --version` | The `package.json` version on stdout | 0 |
+| `winedbg-mcp --anything-else` | The offending argument and a pointer to `--help`, on stderr | 2 |
+| `winedbg-mcp` with an unusable environment value | The reason and the variable, on stderr | 1 |
+
+stdout carries protocol traffic and nothing else, so `winedbg-mcp --help | less`
+and `winedbg-mcp --version` both behave, and every diagnostic goes to stderr.
+The command line is resolved before the environment, so `--help` and
+`--version` still work in a deployment whose `WINEDBG_MCP_*` value the server
+would otherwise refuse to start on.
+
 ## Tests
 
 `bun run typecheck` and `bun test` are the gate for this tree.
@@ -170,6 +201,8 @@ WINEDBG_MCP_SIM_SEED=1014 bun test tests/simulation.test.ts
 
 `tests/validate.test.ts` covers the tool-argument boundary and
 `tests/config.test.ts` the environment parsing described above.
+`tests/cli.test.ts` spawns the entry point to pin the exit codes and which
+stream each message lands on.
 
 ## Troubleshooting
 
