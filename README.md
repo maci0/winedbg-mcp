@@ -8,7 +8,7 @@ The server is implemented and tested. `src/` holds the MCP entry point, the
 winedbg session state machine, the environment parsing, the command-line
 parsing and the tool-argument validation; `build/` is the compiled output of
 `bun run build`; `tests/` covers all of those, and CI (`.github/workflows/ci.yml`)
-runs the typecheck and the suite. The session tests drive `WinedbgSession`
+runs the install, the typecheck, the build and the suite. The session tests drive `WinedbgSession`
 against a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the
 suite needs no Wine. No test here has been run against a real `winedbg`: the
 debugger is the one thing the fixtures replace, so the suite proves the prompt
@@ -226,13 +226,15 @@ would otherwise refuse to start on.
 
 `bun run check` is the gate for this tree: Biome, then the two type-check
 passes, then the suite. `bun run typecheck` and `bun test` are the pieces it
-runs, for iterating on one of them at a time.
+runs, for iterating on one of them at a time. CI runs the build as well, so a
+tree that type-checks but does not emit is red there rather than at release.
 
 ```bash
 bun run check          # what CI runs
 bun run lint           # Biome, formatting and lint rules
 bun run format         # Biome autofix
 bun run typecheck      # tsc on src/, then on src/ + tests/
+bun run build          # tsc, then the executable build/index.js
 bun test
 ```
 
@@ -266,10 +268,11 @@ that is the case worth pinning.
 `tests/cli.test.ts` spawns the entry point to pin the exit codes and which
 stream each message lands on.
 
-CI runs the same `bun run check` on every push and pull request, so a green
-local run is a green remote run. `bun run typecheck` covers `src/` on its own,
-which is the set that ships as `build/`, and then re-checks it together with
-`tests/` so a mistyped test helper fails the build rather than the suite.
+CI runs the same `bun run check` and `bun run build` on every push and pull
+request, so a green local run is a green remote run. `bun run typecheck` covers
+`src/` on its own, which is the set that ships as `build/`, and then re-checks it
+together with `tests/` so a mistyped test helper fails the build rather than the
+suite.
 
 Formatting is Biome's, and the line width is 120 columns, the width the tree was
 already written to. `src/index.ts` keeps three scoped `noConsole` suppressions:

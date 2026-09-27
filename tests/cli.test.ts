@@ -73,7 +73,7 @@ describe("winedbg-mcp --help", () => {
       expect(stdout).toContain("--version");
       expect(stdout).toContain("WINEDBG_MCP_BINARY");
     },
-    TEST_TIMEOUT_MS
+    TEST_TIMEOUT_MS,
   );
 
   test(
@@ -84,7 +84,7 @@ describe("winedbg-mcp --help", () => {
       expect(stderr).toBe("");
       expect(stdout).toContain("Usage: winedbg-mcp");
     },
-    TEST_TIMEOUT_MS
+    TEST_TIMEOUT_MS,
   );
 });
 
@@ -100,7 +100,7 @@ describe("winedbg-mcp --version", () => {
       expect(stderr).toBe("");
       expect(stdout.trim()).toBe(manifest.version);
     },
-    TEST_TIMEOUT_MS
+    TEST_TIMEOUT_MS,
   );
 });
 
@@ -114,7 +114,7 @@ describe("winedbg-mcp with an unknown argument", () => {
       expect(stderr).toContain("--config=foo");
       expect(stderr).toContain("--help");
     },
-    TEST_TIMEOUT_MS
+    TEST_TIMEOUT_MS,
   );
 });
 
@@ -127,6 +127,6 @@ describe("winedbg-mcp with an unusable environment value", () => {
       expect(stdout).toBe("");
       expect(stderr).toContain("WINEDBG_MCP_READY_TIMEOUT_MS");
     },
-    TEST_TIMEOUT_MS
+    TEST_TIMEOUT_MS,
   );
 });
