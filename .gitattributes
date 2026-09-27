@@ -1,0 +1,5 @@
+# The session protocol is line oriented and the fixtures carry shebangs, so
+# every text file is stored LF and checked out LF: a CRLF build/index.js on
+# Windows makes the shebang unreadable and a CRLF fake-winedbg.js breaks the
+# prompt parsing the tests drive.
+* text=auto eol=lf
