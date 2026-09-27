@@ -361,6 +361,17 @@ describe("executeCommand", () => {
     expect(s.isRunning()).toBe(true);
   });
 
+  // A prompt in a reply is a boundary, not output, and the reply ends at the
+  // first one: the rest belongs to whatever the debugger says next, and taking
+  // the last prompt in the buffer instead would hand back text from after the
+  // command that asked for it.
+  test("ends a reply at the first prompt, even when the output carries one", async () => {
+    const s = await startedSession();
+    expect(await s.executeCommand("fakeprompt")).toBe("before");
+    // The prompt that ended the reply was consumed, not left for the next one.
+    expect(await s.executeCommand("bt")).toBe("ran: bt");
+  });
+
   test("cuts the overflow on a character boundary, not inside a surrogate pair", async () => {
     const s = await startedSession();
     const out = await s.executeCommand(`astral:${ASTRAL_CHARS}`);

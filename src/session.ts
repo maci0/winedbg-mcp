@@ -27,6 +27,13 @@ const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
 // still there while one of them is winding down.
 const GROUP_POLL_INTERVAL_MS = 50;
 const GROUP_EXIT_POLLS = KILL_GRACE_MS / GROUP_POLL_INTERVAL_MS;
+// A prompt is PROMPT.length characters, so one split across two reads is only
+// found if the characters before the split are searched again with the next
+// read. Keeping that overlap is what lets a read be searched where it landed
+// rather than by re-walking the whole buffer: a reply arrives in pieces, and a
+// megabyte of them searched from the head on every piece costs a pass over
+// everything received so far, per piece.
+const PROMPT_OVERLAP = PROMPT.length - 1;
 // The debugger answers one line with one prompt, so a command is one line only
 // if it is one line under every reader: a stream reader splits on \n, \r and
 // vertical tab, and a text decoder that honours the Unicode line breaks splits
@@ -88,11 +95,13 @@ export class WinedbgSession {
   // one can name it.
   private currentCommand: string | null = null;
   private buffer: string = "";
-  // How much of the head of `buffer` has been searched for PROMPT. Everything
-  // before it is prompt-free, so a chunk only has to be searched from there.
-  // A chatty debuggee fills the buffer and keeps filling it, and searching all
-  // of it per chunk costs a pass over a megabyte for every line printed.
-  private scannedChars: number = 0;
+  // The last PROMPT_OVERLAP characters of `buffer`, which is also the whole of
+  // it while it is shorter. Everything before the tail has been searched and
+  // holds no prompt, so a read is searched in the tail plus itself: the
+  // characters a prompt could straddle, and nothing already consumed. A chatty
+  // debuggee fills the buffer and keeps filling it, and searching all of it per
+  // read costs a pass over a megabyte for every line printed.
+  private tail: string = "";
   private isReady: boolean = false;
   // Claimed by start() before it awaits anything and released when it settles,
   // so a second start in the same tick is refused rather than racing the first
@@ -241,11 +250,12 @@ export class WinedbgSession {
 
       const onData = (chunk: string) => {
         if (!isCurrent()) return;
-        this.buffer += chunk;
+        const window = this.append(chunk);
         this.trimBuffer();
+        const promptIndex = this.indexOfPrompt(window);
         if (this.isReady) {
-          this.checkOutput();
-        } else if (this.buffer.indexOf(PROMPT, this.scannedChars) !== -1) {
+          if (promptIndex !== -1) this.takeReply(promptIndex);
+        } else if (promptIndex !== -1) {
           this.isReady = true;
           this.clearBuffer();
           this.initReject = null;
@@ -256,9 +266,6 @@ export class WinedbgSession {
           });
           resolve();
         }
-        // Whatever is left in the buffer holds no prompt: it was either searched
-        // above or sits past the last one. The next chunk starts from here.
-        this.scannedChars = this.buffer.length;
       };
 
       child.onData(onData);
@@ -469,7 +476,7 @@ export class WinedbgSession {
 
   private clearBuffer() {
     this.buffer = "";
-    this.scannedChars = 0;
+    this.tail = "";
   }
 
   /** Drop everything a run leaves behind: buffered output, readiness, owed prompts. */
@@ -481,52 +488,80 @@ export class WinedbgSession {
   }
 
   /**
-   * Drop consumed or over-long output from the head. The search position moves
-   * with the text, and never past the start, so it keeps naming the same
-   * character of the prompt-free prefix.
+   * Take one read of output. Appending to a string the size of a reply is
+   * cheap on its own; what costs is searching it, so nothing reads the whole
+   * buffer back here. Returns the window the next search covers: the tail as it
+   * stood before the read, then the read.
+   */
+  private append(chunk: string) {
+    const window = this.tail + chunk;
+    this.buffer += chunk;
+    this.tail = window.length > PROMPT_OVERLAP ? window.slice(-PROMPT_OVERLAP) : window;
+    return window;
+  }
+
+  /**
+   * The first prompt in `window`, as an index into `buffer`, or -1 when there
+   * is none. The window is the tail plus the newest read: everything before the
+   * tail has been searched already and holds no prompt, and the tail is exactly
+   * what a prompt split across two reads could straddle.
+   */
+  private indexOfPrompt(window: string): number {
+    // A read larger than what the ceiling retains leaves the trim having cut
+    // into the window, so the window is no longer a suffix of the buffer and
+    // its offset is meaningless. A pipe read never is that large; searching
+    // the buffer is the same search and gives the index directly.
+    if (this.buffer.length < window.length) return this.buffer.indexOf(PROMPT);
+    const at = window.indexOf(PROMPT);
+    return at === -1 ? -1 : this.buffer.length - window.length + at;
+  }
+
+  /**
+   * Hand the output between prompts to whoever is waiting on it. `first` is the
+   * prompt the search found, and the boundary the reply ends at.
+   */
+  private takeReply(first: number) {
+    // Settle the abandoned command first: its prompt is a boundary, not output
+    // for whoever is waiting now.
+    const drained = this.awaitingAbandonedPrompt;
+    if (drained) {
+      this.dropBufferPrefix(first + PROMPT.length);
+      this.awaitingAbandonedPrompt = false;
+    }
+    if (!this.currentPromise) return;
+
+    // A drain leaves the whole remainder unsearched, so the last prompt in it
+    // ends the reply. Every other search starts past a prompt-free prefix, so
+    // the first prompt it finds is also the last one in the buffer.
+    const promptIndex = drained ? this.buffer.lastIndexOf(PROMPT) : first;
+    if (promptIndex === -1) return;
+    // Everything before the last prompt is the command's output.
+    const output = this.buffer.substring(0, promptIndex).trim();
+    this.dropBufferPrefix(promptIndex + PROMPT.length);
+
+    const dropped = this.droppedChars;
+    this.droppedChars = 0;
+    if (dropped > 0) {
+      this.log.warn("winedbg output hit the buffer limit and its head was dropped", {
+        droppedChars: dropped,
+        command: this.currentCommand,
+      });
+    }
+    // Say what was lost rather than returning a silently shortened reply.
+    this.currentPromise.resolve(
+      dropped > 0 ? `[${dropped} characters of earlier output dropped: buffer limit]\n${output}` : output,
+    );
+    this.releaseCurrent();
+  }
+
+  /**
+   * Drop consumed or over-long output from the head. The tail is the buffer's
+   * last few characters, so a prefix drop leaves it in place unless less is
+   * left than it holds, and then the whole remainder is the new tail.
    */
   private dropBufferPrefix(count: number) {
     this.buffer = this.buffer.substring(count);
-    this.scannedChars = Math.max(0, this.scannedChars - count);
-  }
-
-  private checkOutput() {
-    let from = this.scannedChars;
-
-    // Settle the abandoned command first: its prompt is a boundary, not output
-    // for whoever is waiting now.
-    if (this.awaitingAbandonedPrompt) {
-      const end = this.buffer.indexOf(PROMPT, from);
-      if (end === -1) return;
-      this.dropBufferPrefix(end + PROMPT.length);
-      this.awaitingAbandonedPrompt = false;
-      from = 0;
-    }
-
-    if (this.currentPromise) {
-      // A drain leaves the whole buffer unsearched, so the last prompt is the
-      // boundary there. Otherwise everything before `from` is prompt-free, and
-      // the first prompt from there is also the last one in the buffer.
-      const promptIndex = from === 0 ? this.buffer.lastIndexOf(PROMPT) : this.buffer.indexOf(PROMPT, from);
-      if (promptIndex === -1) return;
-      // Everything before the last prompt is the command's output.
-      const output = this.buffer.substring(0, promptIndex).trim();
-      this.dropBufferPrefix(promptIndex + PROMPT.length);
-
-      const dropped = this.droppedChars;
-      this.droppedChars = 0;
-      if (dropped > 0) {
-        this.log.warn("winedbg output hit the buffer limit and its head was dropped", {
-          droppedChars: dropped,
-          command: this.currentCommand,
-        });
-      }
-      // Say what was lost rather than returning a silently shortened reply.
-      this.currentPromise.resolve(
-        dropped > 0 ? `[${dropped} characters of earlier output dropped: buffer limit]\n${output}` : output,
-      );
-      this.releaseCurrent();
-    }
+    if (this.buffer.length < this.tail.length) this.tail = this.buffer;
   }
 
   /**

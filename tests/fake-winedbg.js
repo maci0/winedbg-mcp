@@ -57,6 +57,15 @@ function handle(line) {
     process.stdout.write("Wine-dbg>");
     return;
   }
+  if (line.startsWith("fakeprompt")) {
+    // A reply carrying the prompt as literal output, the way a program under
+    // debug that prints it would. Two prompts reach the session in one reply,
+    // so which one ends it is a decision rather than an accident of where the
+    // last read left the buffer.
+    process.stdout.write("before\nWine-dbg>\nafter\n");
+    process.stdout.write("Wine-dbg>");
+    return;
+  }
   if (line.startsWith("astral:")) {
     // Enough characters from outside the BMP to push a reader past a cap measured
     // in UTF-16 code units, so the cut it takes has to be rounded to a character
