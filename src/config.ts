@@ -1,4 +1,11 @@
-import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "./constants.js";
+import {
+  DEFAULT_BINARY,
+  DEFAULT_LOG_LEVEL,
+  DEFAULT_READY_TIMEOUT_MS,
+  LOG_LEVELS,
+  MAX_READY_TIMEOUT_MS,
+  type LogLevel,
+} from "./constants.js";
 
 // The only deployment knobs. An MCP client launches this server with no argv it
 // controls beyond the script path, so env is the one place a deployment can say
@@ -7,12 +14,14 @@ import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "
 // mistyped path produces.
 export const BINARY_VAR = "WINEDBG_MCP_BINARY";
 export const READY_TIMEOUT_VAR = "WINEDBG_MCP_READY_TIMEOUT_MS";
-const KNOWN_VARS: readonly string[] = [BINARY_VAR, READY_TIMEOUT_VAR];
+export const LOG_LEVEL_VAR = "WINEDBG_MCP_LOG_LEVEL";
+const KNOWN_VARS: readonly string[] = [BINARY_VAR, READY_TIMEOUT_VAR, LOG_LEVEL_VAR];
 const VAR_PREFIX = "WINEDBG_MCP_";
 
 export type Config = {
   binary: string;
   readyTimeoutMs: number;
+  logLevel: LogLevel;
 };
 
 /**
@@ -32,12 +41,25 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   return {
     binary: parseBinary(env[BINARY_VAR]),
     readyTimeoutMs: parseReadyTimeout(env[READY_TIMEOUT_VAR]),
+    logLevel: parseLogLevel(env[LOG_LEVEL_VAR]),
   };
 }
 
 /** Describe the active configuration for the startup log. No secrets pass through here. */
 export function describeConfig(config: Config): string {
-  return `${BINARY_VAR}=${config.binary} ${READY_TIMEOUT_VAR}=${config.readyTimeoutMs}`;
+  return `${BINARY_VAR}=${config.binary} ${READY_TIMEOUT_VAR}=${config.readyTimeoutMs} ${LOG_LEVEL_VAR}=${config.logLevel}`;
+}
+
+function parseLogLevel(raw: string | undefined): LogLevel {
+  if (raw === undefined) return DEFAULT_LOG_LEVEL;
+  const value = raw.trim().toLowerCase();
+  // A level nothing logs at, or one nobody recognizes, silences the server's
+  // diagnostics without saying so. Refuse it the way the other values are
+  // refused: at startup, with the variable named.
+  if (!(LOG_LEVELS as readonly string[]).includes(value)) {
+    throw new Error(`${LOG_LEVEL_VAR} must be one of ${LOG_LEVELS.join(", ")}, got "${raw}"`);
+  }
+  return value as LogLevel;
 }
 
 function parseBinary(raw: string | undefined): string {

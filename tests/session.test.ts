@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { BINARY_VAR } from "../src/config.js";
 import { DEFAULT_READY_TIMEOUT_MS } from "../src/constants.js";
+import { createLogger } from "../src/logger.js";
 import { WinedbgSession } from "../src/session.js";
 
 const FAKE = new URL("fake-winedbg.js", import.meta.url).pathname;
@@ -43,8 +44,10 @@ let session: WinedbgSession | null = null;
 
 function newSession(): WinedbgSession {
   // process.execPath runs the fixture with the same runtime as the tests, so no
-  // PATH lookup or shebang interpreter is involved.
-  session = new WinedbgSession(process.execPath);
+  // PATH lookup or shebang interpreter is involved. The logger discards: these
+  // tests are about the state machine, and the suite's own output would
+  // otherwise carry a session lifecycle per test.
+  session = new WinedbgSession(process.execPath, undefined, undefined, createLogger("debug", () => {}));
   return session;
 }
 
@@ -365,7 +368,7 @@ describe("stop", () => {
   });
 
   test("settles a start that is still waiting for its prompt", async () => {
-    const s = new WinedbgSession(process.execPath, 5000);
+    const s = new WinedbgSession(process.execPath, 5000, undefined, createLogger("debug", () => {}));
     session = s;
     // "mute" never prompts, so nothing but stop() can end this start. Leaving
     // the caller awaiting a prompt that can no longer arrive hangs the request.
@@ -395,5 +398,55 @@ describe("stop", () => {
     // moment after the close the start waited for.
     expect(await waitForExit(first, KILL_WAIT_MS)).toBe(true);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
+  });
+});
+
+describe("logging", () => {
+  function loggedSession(): { records: () => Record<string, unknown>[]; session: WinedbgSession } {
+    const lines: string[] = [];
+    const log = createLogger("debug", (line) => lines.push(line));
+    session = new WinedbgSession(process.execPath, 5000, undefined, log);
+    return { session, records: () => lines.map((line) => JSON.parse(line) as Record<string, unknown>) };
+  }
+
+  function messages(records: Record<string, unknown>[]): string[] {
+    return records.map((record) => record["message"] as string);
+  }
+
+  test("a start reports the spawn, the prompt it waited for and a command that timed out", async () => {
+    const { session: s, records } = loggedSession();
+    await s.start([FAKE]);
+    await s.executeCommand("bt");
+    const messagesSeen = messages(records());
+    expect(messagesSeen).toContain("winedbg spawned, waiting for its first prompt");
+    expect(messagesSeen).toContain("winedbg is at its first prompt");
+    // The duration is what tells a slow wineprefix from a debugger that is stuck.
+    const ready = records().find((r) => r["message"] === "winedbg is at its first prompt")!;
+    expect(typeof ready["readyMs"]).toBe("number");
+    expect(typeof ready["pid"]).toBe("number");
+
+    await expect(s.executeCommand("hang", HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
+    const timedOut = records().find((r) => r["message"] === "winedbg command timed out")!;
+    expect(timedOut["level"]).toBe("error");
+    expect(timedOut["command"]).toBe("hang");
+    expect(timedOut["timeoutMs"]).toBe(HANG_TIMEOUT_MS);
+  });
+
+  test("a debugger that exits on its own is an error, a requested stop is not", async () => {
+    const { session: s, records } = loggedSession();
+    await s.start([FAKE]);
+    await expect(s.executeCommand("crash")).rejects.toThrow();
+    const crashed = records().find((r) => r["message"] === "winedbg exited")!;
+    expect(crashed["level"]).toBe("error");
+    expect(crashed["code"]).toBe(3);
+    expect(crashed["wasReady"]).toBe(true);
+
+    s.start([FAKE]).catch(() => {});
+    const before = records().length;
+    s.stop();
+    await Bun.sleep(KILL_WAIT_MS);
+    // Everything after the stop is the close that stop() asked for, which must
+    // not read as a debugger that crashed under a client.
+    expect(records().slice(before).map((r) => r["message"])).not.toContain("winedbg exited");
   });
 });

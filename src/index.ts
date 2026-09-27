@@ -5,9 +5,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
 import { parseCliArgs, UsageError } from "./cli.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS } from "./constants.js";
 import { WinedbgSession } from "./session.js";
-import { callTool, TOOLS } from "./tools.js";
+import { createLogger } from "./logger.js";
+import { callTool, TOOLS, type ToolResult } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
 
 // The command line is resolved before the environment, so --help and --version
@@ -55,38 +55,51 @@ const server = new Server(
   },
 );
 
-const session = new WinedbgSession(config.binary, config.readyTimeoutMs);
+const log = createLogger(config.logLevel, (line) => {
+  process.stderr.write(`${line}\n`);
+});
+const session = new WinedbgSession(config.binary, config.readyTimeoutMs, undefined, log);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
 // A tool call is a debugger command carrying the authority of the account the
 // server runs as, and the reply stream is written by the program under debug, so
-// the operator's log is the only record of what actually ran. Control characters
-// are stripped so a command cannot forge log records, and the text is truncated
-// so a call cannot flood the log.
-const AUDIT_LOG_MAX_CHARS = 200;
-const LOG_CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
-
-function audit(event: string, detail: string) {
-  const text = detail.replace(LOG_CONTROL_CHARS, " ").slice(0, AUDIT_LOG_MAX_CHARS);
-  console.error(`[winedbg-mcp] ${event}${text ? ` ${text}` : ""}`);
-}
+// the operator's log is the only record of what actually ran. The SDK hands a
+// tool call its params and not the JSON-RPC envelope, so the client's request id
+// never reaches this process. A per-process counter stands in for it: one number
+// that ties the start, the failure and the duration of one call together in the
+// log.
+let callCounter = 0;
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  const result = await callTool(session, name, args);
-  const text = result.content[0]?.text ?? "";
-  // callTool reports a tool failure as an error result rather than by throwing,
-  // so the log reads the outcome back off the result.
+  const callId = `call-${++callCounter}`;
+  const tool = request.params.name;
+  const startedAt = Date.now();
+  log.info("tool call started", { callId, tool });
+  let result: ToolResult;
+  try {
+    result = await callTool(session, tool, request.params.arguments);
+  } catch (error) {
+    // The one failure that is not an error result: an unknown tool name, which
+    // is a protocol error the client has to see. It still has to leave a line
+    // here, or a call that starts in the log and never ends looks like a hang.
+    log.error("tool call rejected", {
+      callId,
+      tool,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  const durationMs = Date.now() - startedAt;
+  // A failed tool call still answered the client, so it is a call that completed
+  // with an error, not a missing one: the outcome rides on the same line as the
+  // duration, which is what answers "did it succeed and how long did it take".
   if (result.isError) {
-    audit("error", `${name}: ${text.replace(/^Error: /, "")}`);
-  } else if (name === "winedbg_start") {
-    audit("start", JSON.stringify(args?.["args"] ?? []));
-  } else if (name === "winedbg_execute") {
-    const timeout = args?.["timeout"] ?? DEFAULT_COMMAND_TIMEOUT_MS;
-    audit("execute", `${JSON.stringify(args?.["command"])} timeoutMs=${timeout} replyChars=${text.length}`);
+    const text = result.content[0]?.text ?? "";
+    log.warn("tool call failed", { callId, tool, durationMs, error: text });
   } else {
-    audit("stop", "");
+    log.info("tool call finished", { callId, tool, durationMs });
   }
   return result;
 });
@@ -96,13 +109,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // to wait in, so the tree is killed outright rather than asked to leave.
 process.on("exit", () => session.stopImmediately());
 
-function shutdown() {
+function shutdown(reason: string) {
+  log.info("shutting down", { reason });
   session.stop();
   process.exit(0);
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, shutdown);
+  process.on(signal, () => shutdown(`signal ${signal}`));
 }
 
 async function main() {
@@ -111,15 +125,19 @@ async function main() {
   // The stdio transport never reports a client hangup on its own: a client that
   // closes stdin ends the stream without a message. Left alone, the server, the
   // debugger and the debuggee under it would keep running with nobody to talk to.
-  server.onclose = shutdown;
-  process.stdin.once("end", shutdown);
-  process.stdin.once("close", shutdown);
-  // biome-ignore lint/suspicious/noConsole: stdout carries the JSON-RPC stream, so stderr is the only channel the banner can go to.
-  console.error(`winedbg MCP server running on stdio (${describeConfig(config)})`);
+  server.onclose = () => shutdown("client closed the connection");
+  process.stdin.once("end", () => shutdown("end of stdin"));
+  process.stdin.once("close", () => shutdown("stdin closed"));
+  log.info("winedbg MCP server running on stdio", {
+    version: SERVER_VERSION,
+    config: describeConfig(config),
+  });
 }
 
 main().catch((error) => {
-  // biome-ignore lint/suspicious/noConsole: stdout carries the JSON-RPC stream, so stderr is the only channel a fatal error can be reported on.
-  console.error("Server error:", error);
+  log.error("server could not start", {
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? (error.stack ?? null) : null,
+  });
   process.exit(1);
 });

@@ -6,23 +6,37 @@
 // plain object. process.env is never touched.
 
 import { describe, expect, test } from "bun:test";
-import { BINARY_VAR, describeConfig, loadConfig, READY_TIMEOUT_VAR } from "../src/config.js";
-import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/constants.js";
+import { BINARY_VAR, describeConfig, LOG_LEVEL_VAR, loadConfig, READY_TIMEOUT_VAR } from "../src/config.js";
+import { DEFAULT_BINARY, DEFAULT_LOG_LEVEL, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/constants.js";
 
 describe("loadConfig", () => {
   test("an empty environment gives the documented defaults", () => {
     expect(loadConfig({})).toEqual({
       binary: DEFAULT_BINARY,
       readyTimeoutMs: DEFAULT_READY_TIMEOUT_MS,
+      logLevel: DEFAULT_LOG_LEVEL,
     });
   });
 
-  test("both variables override", () => {
+  test("all three variables override", () => {
     const config = loadConfig({
       [BINARY_VAR]: "/opt/wine/bin/winedbg",
       [READY_TIMEOUT_VAR]: "45000",
+      [LOG_LEVEL_VAR]: "debug",
     });
-    expect(config).toEqual({ binary: "/opt/wine/bin/winedbg", readyTimeoutMs: 45000 });
+    expect(config).toEqual({ binary: "/opt/wine/bin/winedbg", readyTimeoutMs: 45000, logLevel: "debug" });
+  });
+
+  test("a log level is matched whatever its case or padding", () => {
+    expect(loadConfig({ [LOG_LEVEL_VAR]: " WARN " }).logLevel).toBe("warn");
+  });
+
+  test("an unrecognized log level is refused, not defaulted", () => {
+    // Silently falling back to info would leave a deployment that asked for
+    // debug and got none, with nothing on stderr saying so.
+    for (const raw of ["", "verbose", "trace", "warning", "5"]) {
+      expect(() => loadConfig({ [LOG_LEVEL_VAR]: raw })).toThrow(new RegExp(LOG_LEVEL_VAR));
+    }
   });
 
   test("unrelated variables are left alone", () => {
@@ -68,9 +82,10 @@ describe("loadConfig", () => {
     expect(loadConfig({ [READY_TIMEOUT_VAR]: " 45000 " }).readyTimeoutMs).toBe(45000);
   });
 
-  test("the startup line names both variables and their active values", () => {
+  test("the startup line names every variable and its active value", () => {
     const line = describeConfig(loadConfig({ [BINARY_VAR]: "/opt/wine/bin/winedbg" }));
     expect(line).toContain(`${BINARY_VAR}=/opt/wine/bin/winedbg`);
     expect(line).toContain(`${READY_TIMEOUT_VAR}=${DEFAULT_READY_TIMEOUT_MS}`);
+    expect(line).toContain(`${LOG_LEVEL_VAR}=${DEFAULT_LOG_LEVEL}`);
   });
 });

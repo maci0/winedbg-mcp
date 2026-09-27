@@ -1,5 +1,6 @@
 import { BINARY_VAR } from "./config.js";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
+import { stderrLogger, type Logger } from "./logger.js";
 import { nodeRuntime } from "./runtime.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
 
@@ -89,11 +90,15 @@ export class WinedbgSession {
   // Distinguishes a launch cancelled by stop() from one replaced by a newer
   // start, so each reports the state the caller has to act on.
   private stopRequested: boolean = false;
+  // Set by stop() before the kill, so the close that follows is reported as the
+  // requested end of a session rather than as a debugger that died.
+  private stoppedByRequest: boolean = false;
 
   constructor(
     private readonly binary: string = DEFAULT_BINARY,
     private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS,
-    private readonly runtime: SessionRuntime = nodeRuntime()
+    private readonly runtime: SessionRuntime = nodeRuntime(),
+    private readonly log: Logger = stderrLogger
   ) {}
 
   /**
@@ -126,6 +131,7 @@ export class WinedbgSession {
     // A previous session can die leaving a prompt in the buffer; without this
     // reset the next start would report ready before the new child says anything.
     this.resetState();
+    this.stoppedByRequest = false;
 
     let child: DebuggerChild;
     try {
@@ -136,6 +142,11 @@ export class WinedbgSession {
       // running, so refusing the next start is not a concern here. Rejected
       // rather than thrown: every other start failure arrives that way, and a
       // caller with only a .catch() on the result would miss this.
+      this.log.error("winedbg could not be spawned", {
+        binary: this.binary,
+        args: JSON.stringify(args),
+        error: error instanceof Error ? error.message : String(error),
+      });
       return Promise.reject(
         new Error(
           `Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${error instanceof Error ? error.message : String(error)}`
@@ -143,6 +154,13 @@ export class WinedbgSession {
       );
     }
     this.process = child;
+    const startedAt = Date.now();
+    this.log.info("winedbg spawned, waiting for its first prompt", {
+      binary: this.binary,
+      args: JSON.stringify(args),
+      pid: child.pid ?? null,
+      readyTimeoutMs: this.readyTimeoutMs,
+    });
 
     return new Promise<void>((resolve, reject) => {
       // Events from an already-replaced child (a kill lands after the next
@@ -181,6 +199,11 @@ export class WinedbgSession {
         this.initReject = null;
         this.readyTimer = null;
         this.terminate(child);
+        this.log.error("winedbg printed no first prompt before the ready timeout", {
+          binary: this.binary,
+          pid: child.pid ?? null,
+          readyTimeoutMs: this.readyTimeoutMs,
+        });
         reject(new Error(`Timeout waiting for ${this.binary} to print its first prompt (${this.readyTimeoutMs}ms)`));
       }, this.readyTimeoutMs);
 
@@ -195,6 +218,10 @@ export class WinedbgSession {
           this.clearBuffer();
           this.initReject = null;
           this.clearReadyTimer();
+          this.log.info("winedbg is at its first prompt", {
+            pid: child.pid ?? null,
+            readyMs: Date.now() - startedAt,
+          });
           resolve();
         }
         // Whatever is left in the buffer holds no prompt: it was either searched
@@ -211,6 +238,18 @@ export class WinedbgSession {
         this.isReady = false;
         this.awaitingAbandonedPrompt = false;
         this.clearReadyTimer();
+        // A debugger that dies on its own, after a prompt, is the failure an
+        // operator has to tell apart from a requested stop: nothing in the tool
+        // result says the process went away underneath the call.
+        const fields = {
+          code,
+          signal,
+          wasReady,
+          pid: child.pid ?? null,
+          lifetimeMs: Date.now() - startedAt,
+        };
+        if (this.stoppedByRequest) this.log.info("winedbg exited after a requested stop", fields);
+        else this.log.error("winedbg exited", fields);
         // A child that dies before printing a prompt fails start now, rather
         // than hanging until the ready timeout.
         const initReject = wasReady ? null : this.initReject;
@@ -227,6 +266,10 @@ export class WinedbgSession {
           child.pid === undefined
             ? `Failed to run ${this.binary}${args.length > 0 ? ` with args ${JSON.stringify(args)}` : ""}: ${error.message}. Check ${BINARY_VAR} and that the executable is on PATH.`
             : error.message;
+        this.log.error("winedbg process error", {
+          pid: child.pid ?? null,
+          error: error.message,
+        });
         fail(new Error(message));
       });
     });
@@ -385,6 +428,12 @@ export class WinedbgSession {
 
       const dropped = this.droppedChars;
       this.droppedChars = 0;
+      if (dropped > 0) {
+        this.log.warn("winedbg output hit the buffer limit and its head was dropped", {
+          droppedChars: dropped,
+          command: this.currentCommand,
+        });
+      }
       // Say what was lost rather than returning a silently shortened reply.
       this.currentPromise.resolve(
         dropped > 0 ? `[${dropped} characters of earlier output dropped: buffer limit]\n${output}` : output,
@@ -436,7 +485,9 @@ export class WinedbgSession {
       );
     }
     return new Promise((resolve, reject) => {
+      const sentAt = Date.now();
       const timeout = this.runtime.clock.setTimeout(() => {
+        this.log.error("winedbg command timed out", { command, timeoutMs, commandMs: Date.now() - sentAt });
         this.abandonCurrent(new Error(`Command timed out after ${timeoutMs}ms: ${JSON.stringify(command)}`));
       }, timeoutMs);
 
@@ -451,6 +502,7 @@ export class WinedbgSession {
         },
       };
       this.currentCommand = command;
+      this.log.debug("winedbg command sent", { command, timeoutMs });
 
       // Anything still buffered predates this command. Owed prompts are counted
       // separately, so dropping the text here cannot lose a boundary.
@@ -461,6 +513,10 @@ export class WinedbgSession {
         // The write failed part way, so the debugger may hold the command and
         // still owe a prompt. Release the slot instead of leaving every later
         // command refused as in progress.
+        this.log.error("winedbg command could not be written", {
+          command,
+          error: error instanceof Error ? error.message : String(error),
+        });
         this.abandonCurrent(
           new Error(
             `Failed to send ${JSON.stringify(command)} to winedbg: ${error instanceof Error ? error.message : String(error)}`,
@@ -505,6 +561,7 @@ export class WinedbgSession {
 
     this.process = null;
     this.resetState();
+    this.stoppedByRequest = true;
     // A start() in flight outlives neither this stop nor its ready timer: the
     // caller is awaiting a prompt that can no longer arrive.
     const initReject = this.initReject;

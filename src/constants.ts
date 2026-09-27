@@ -12,3 +12,10 @@ export const MAX_COMMAND_TIMEOUT_MS = 600000;
 // bound unrelated waits, and raising the command ceiling must not silently
 // raise the first-prompt wait.
 export const MAX_READY_TIMEOUT_MS = 600000;
+
+// Log levels, ordered from most to least verbose. A line below the configured
+// level is never formatted, so a debug-level deployment costs nothing on a
+// quiet one.
+export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+export const DEFAULT_LOG_LEVEL: LogLevel = "info";

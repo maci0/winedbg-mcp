@@ -14,6 +14,7 @@
 // state machine against an actual child, where timing is whatever the host does.
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { createLogger } from "../src/logger.js";
 import { WinedbgSession } from "../src/session.js";
 import type { Clock, DebuggerChild, Timer } from "../src/runtime.js";
 
@@ -330,10 +331,17 @@ async function runScenario(seed: number): Promise<{ transcript: string[]; signal
   // A cold wineprefix is slow, and slower than the wait is a start that gives up.
   const promptDelayMs = Math.floor(rng() * 2 * READY_TIMEOUT_MS);
   const fake = new SimulatedDebugger(clock, rng, promptDelayMs);
-  const session = new WinedbgSession("winedbg", READY_TIMEOUT_MS, {
-    clock,
-    spawn: () => fake,
-  });
+  // The logger discards: a run is compared by its transcript, and stderr
+  // session lines from a thousand seeds would bury a failure.
+  const session = new WinedbgSession(
+    "winedbg",
+    READY_TIMEOUT_MS,
+    {
+      clock,
+      spawn: () => fake,
+    },
+    createLogger("debug", () => {})
+  );
   const transcript: string[] = [];
   const fail = (message: string): never => {
     throw new Error(`seed ${seed}: ${message}\n  transcript: ${transcript.join(" | ")}`);

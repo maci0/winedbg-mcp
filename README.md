@@ -27,6 +27,7 @@ Source layout, one concern per module:
 | `src/validate.ts` | validation of untyped tool arguments |
 | `src/session.ts` | the winedbg child process and its prompt protocol |
 | `src/runtime.ts` | the process and clock the session reaches the outside world through |
+| `src/logger.ts` | the stderr log line format and the level filter |
 | `src/config.ts` | reading and validating the environment |
 | `src/constants.ts` | defaults and limits shared across the above |
 | `src/version.ts` | the version string reported to MCP clients |
@@ -75,8 +76,8 @@ To use this with an MCP client (like Claude Desktop or Gemini), configure the MC
 
 ### Environment variables
 
-Both are optional and read once at startup. There are no secrets and no config
-file: the environment is the only place to set these.
+All three are optional and read once at startup. There are no secrets and no
+config file: the environment is the only place to set these.
 
 That says what this server reads, not what its process holds. `winedbg` is
 started with the server's whole environment and working directory inherited, so
@@ -89,6 +90,7 @@ rest of the attack surface.
 | --- | --- | --- |
 | `WINEDBG_MCP_BINARY` | `winedbg` (found on `PATH`) | A non-empty command name or path, with no NUL byte in it |
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | `10000` | Whole milliseconds, 1 to 600000. How long `winedbg_start` waits for the first prompt. Raise it for a cold wineprefix, which takes far longer than a warm one |
+| `WINEDBG_MCP_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Below this level a line is never written |
 
 A value the server cannot use stops it at startup with the variable named,
 rather than failing later as a spawn error or a start timeout. That includes a
@@ -96,9 +98,35 @@ variable set to the empty string and a misspelled `WINEDBG_MCP_*` name, which
 would otherwise be ignored while the deployment ran on defaults. The startup line
 on stderr reports the values in effect:
 
+```json
+{"time":"2026-09-27T10:00:00.000Z","level":"info","message":"winedbg MCP server running on stdio","version":"1.0.0","config":"WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READY_TIMEOUT_MS=10000 WINEDBG_MCP_LOG_LEVEL=info"}
 ```
-winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READY_TIMEOUT_MS=10000)
-```
+
+### Logging
+
+stdout carries JSON-RPC and nothing else, so every diagnostic goes to stderr as
+one JSON object per line: an ISO-8601 `time`, a `level`, a fixed `message` and
+flat named fields. A multiline `winedbg` reply therefore cannot break a line
+parse, and a log aggregator can filter on a field instead of on a phrase.
+
+The fields an operator pivots on:
+
+| Field | Where | Answers |
+| --- | --- | --- |
+| `callId` | one tool call | ties the start, the outcome and the duration of a call together, e.g. `call-7` |
+| `tool` | one tool call | which of the three tools ran |
+| `durationMs` | tool call result | how long the call took, success or failure |
+| `error` | a failure | why: the same text the client got back as the tool result |
+| `readyMs`, `lifetimeMs`, `pid` | session start and exit | how long the debugger took to answer, and how it ended |
+| `command`, `timeoutMs` | a command that timed out | which command, and the bound it hit |
+| `droppedChars` | a reply past the 1M buffer limit | that the reply was shortened, and by how much |
+
+A session that ends because the debugger died is logged at `error`; one that
+ends because `winedbg_stop`, `SIGTERM` or the client hanging up asked for it is
+logged at `info`, so a quiet log holds no shutdown noise. `debug` adds the
+command text of each `winedbg_execute`. There are no metrics, traces or alerts
+to configure: the server is one process per MCP client with nothing to scrape,
+so the log is the whole surface.
 
 ## Tools Available
 

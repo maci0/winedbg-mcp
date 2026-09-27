@@ -9,6 +9,18 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 
 ## [Unreleased]
 
+### Added
+
+- Structured logging to stderr: one JSON object per line, with a `time`, a
+  `level`, a fixed `message` and flat named fields. Every tool call logs its
+  start, its outcome and how long it took under one `callId`, and a session logs
+  its spawn, the time to its first prompt, its exit (with the code or signal,
+  and at `error` only when nothing asked for the stop) and the commands that
+  timed out or overflowed the reply buffer.
+- `WINEDBG_MCP_LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
+  An unusable value stops the server at startup with the variable named, like
+  the other two.
+
 ### Changed
 
 - Declared dependency floors now match the versions the test suite runs
