@@ -21,15 +21,14 @@ claim below is therefore split by how it is supported:
 - **[verified]** is checked against a file in this tree, and carries a line
   reference that resolves here.
 
-An earlier revision of this document cited line numbers in `src/index.ts`,
-`src/session.ts`, `src/validate.ts`, `src/config.ts`, `package.json` and
-`.github/workflows/ci.yml`. None of those files exist on the branch this document
-was written on, or anywhere in that branch's history. The numbers were
-unverifiable here, so they are gone: an unresolvable line reference is worse
-than none, because a reader assumes it was checked. What replaced them is a
-`README.md` line, which does resolve. Where the code location matters and
-cannot be cited, the model names the file the control belongs in and marks it
-unanchored.
+A reference in this document has to resolve to the text it backs, not merely to
+a line inside the file: `README.md:125-128` names a line range and reads as
+checked, while the sentence it was cited for sits at `README.md:133-136`. An
+unresolvable or off-target citation is worse than none, because a reader
+assumes it was checked. `README.md` is a living file and this model edits it
+rarely, so every reference here is re-checked whenever the README changes.
+Where the code location matters and cannot be cited, the model names the file
+the control belongs in and marks it unanchored.
 
 When the server lands, re-verify this model before relying on it. Section 7 says
 what to check first.
@@ -56,6 +55,7 @@ this repository.
 | 11 | Nothing in the design records a command, an argument, a timeout or a reply size. | All | No trail to investigate an incident from | Unmitigated |
 | 12 | The build emits `build/index.js` and the client configuration points at it (`README.md:28-34`, `README.md:40-53`), with no build, test or CI artifact in this repository to show the shipped file matches the sources. | B5 | A build that diverges from tested source ships unchecked | Unverifiable here |
 | 13 | No published manifest, lockfile or CI workflow exists in this tree, so whether CI pins its actions and scopes its token, and what a consumer resolves, cannot be checked. | B5 | Supply-chain drift decided by whatever satisfies a range on the day of install | Unverifiable here |
+| 14 | The same artifact has three documented run paths: `bun` on `build/index.js` (the client configuration, `README.md:40-53`), `node` 18 or higher on that same file (`README.md:18-19`), and the sources directly under `bun run dev`, skipping the build (`README.md:33-34`). Only the first is exercised by the documented configuration, and the runtime is named as a floor with no upper bound and nothing in this tree to pin it. | B5, B2, B3 | A deployment that swaps `bun` for `node` gets a different stream decoder, process-group and `TextDecoder` behaviour than the one the reply rules at `README.md:107-113` describe, with no artifact showing the difference | Unmitigated; the build and its runtime are both unnamed here |
 
 Nothing this server reads is a secret store: the two variables it parses are
 non-secret knobs and neither is written anywhere (`README.md:57-58`). That is a
@@ -83,6 +83,7 @@ compare against `tools/list` when the code lands:
 | Entry point | Type | Designation | Validation as described |
 | --- | --- | --- | --- |
 | JSON-RPC over stdio | Transport | client configuration, `README.md:40-53` | None at the transport |
+| Runtime and path the client launches | Deployment choice, `bun` or `node` 18+ on the built file, or the sources under `bun run dev` | `README.md:18-19`, `README.md:33-34` | None. The client configuration pins `bun` (`README.md:44`); the README also sanctions `node`, and the `node` requirement is a floor with no upper bound |
 | `winedbg_start` `args` | Tool argument, reaches the child's argv | `README.md:84` | None stated; the array is passed through unchanged, with no length or content check |
 | `winedbg_execute` `command` | Tool argument, reaches the debugger's stdin | `README.md:85` | Non-empty, carrying no line terminator (`\n`, `\r`, vertical tab, form feed, NEL, U+2028, U+2029); no allowlist of debugger commands |
 | `winedbg_execute` `timeout` | Tool argument | `README.md:86` | Bounded, 1 to 600000 ms |
@@ -101,7 +102,7 @@ them in the code and add them to this table.
 
 The one internal name the README gives is `WinedbgSession`, the class the
 planned test suite drives against a stand-in speaking the same `Wine-dbg>`
-protocol (`README.md:125-128`). That is where the spawn, the framing and the
+protocol (`README.md:133-136`). That is where the spawn, the framing and the
 reply buffer described throughout this model live, so the next pass should
 start there rather than at the transport.
 
@@ -192,6 +193,21 @@ dependency version. Two consequences follow, and both are unverifiable rather
 than confirmed: nothing here verifies that the emitted artifact matches tested
 source, and a consumer of a published binary would resolve dependencies from
 whatever declared ranges the package carries, with no lockfile in reach.
+
+The artifact also has more than one documented way to run, a second B5
+question that also reaches B2 and B3. The client configuration launches
+`build/index.js` with `bun` (`README.md:40-53`), the README also sanctions
+running that same file with `node` 18 or higher (`README.md:18-19`), and
+`bun run dev` runs the sources with no build step at all
+(`README.md:33-34`). Three things follow. A deployment on the dev path has no
+build output to diverge, but also never runs the artifact B5 is about. A
+deployment that swaps `bun` for `node` runs it on a runtime bounded only from
+below, and the reply rules the README states (UTF-8 decoding with U+FFFD for
+invalid sequences, character-counted truncation, `README.md:107-113`) and the
+unanchored questions in B2 and B3 about stream chunking and process-group
+handling are exactly the behaviour that differs between the two. And a
+`node` on `PATH` earlier than a deployment expects resolves a `command` field
+from the client configuration, so the swap needs no edit to the server at all.
 
 **Secrets.** [verified] The two variables the server interprets are non-secret
 knobs, and the README says so (`README.md:57-58`). [design] That statement
@@ -364,14 +380,17 @@ Absent by design, ranked by exploitability then impact:
    (`README.md:140-149`). The five session-state messages are fixed text
    (`README.md:143-149`), so what passes through unsanitised is the spawn and
    OS error, not the routine failures.
+9. **No pinning of the runtime that executes the artifact.** The client
+   configuration names `bun` (`README.md:40-53`) and the README also sanctions
+   `node` 18 or higher (`README.md:18-19`) with no upper bound, while the reply
+   rules at `README.md:107-113` state behaviour that depends on which of the two
+   is doing the decoding. Nothing in this tree records which runtime the
+   project tests.
 
 Security claims to check before relying on them. The README says there are no
 secrets and no config file (`README.md:57-58`) and qualifies it in the next
 paragraph (`README.md:60-65`). The qualification is what makes the claim safe to
-read, and it is present. An earlier revision of this document cited
-`README.md:50` for the claim, which is inside the JSON configuration example
-rather than the sentence making it, so the citation pointed at nothing. No
-other security claim is made in this repository.
+read, and it is present. No other security claim is made in this repository.
 
 Single points of failure carrying several high-impact threats:
 
@@ -383,6 +402,9 @@ Single points of failure carrying several high-impact threats:
 - The child's spawn options are the single place its authority is defined.
   Everything the debuggee can reach that the caller cannot, it reaches through
   what is absent there.
+- The runtime that executes the artifact decides how the child stream is decoded
+  and how the process group is handled, so one unpinned runtime carries the
+  framing and cleanup questions of B2 and B3 as well as B5.
 - The server's OS user is the whole blast radius for every row in the summary.
 
 ## 6. Abuse cases (design)
@@ -442,21 +464,10 @@ respect to the specification in `README.md`. The limits on it are these:
   drops at a code point boundary and rejects every line terminator the README
   now names (`README.md:95-100`, `README.md:107-113`). Each of those answers
   changes a row in the summary.
-- An earlier revision of this file carried line numbers into `src/` and
-  `package.json`, files this repository does not contain. Any line reference
-  added to this document later must resolve in this tree or be marked
-  unanchored; an unresolvable reference reads as a checked one.
-- A later revision of this file carried `README.md` line numbers that a
-  subsequent README edit invalidated: dropping restating lead-ins from the
-  lists and the configuration block moved every line below them. 67 of its 71
-  references, in 20 distinct forms, then pointed at the wrong text while
-  still naming a line inside the file. Only `README.md:5-11` and
-  `README.md:28-34` survived, because they sit above the edited region. That
-  is the same failure as the `src/` citations, in the more likely direction,
-  because the README is a living file and this model edits it rarely. Every
-  `README.md` reference here was re-checked against the current file in this
-  pass. Re-check them again after any README edit; a citation that survives
-  review is not thereby re-verified.
+- Every line reference in this file was re-checked against the current
+  `README.md` in the pass that set the last-reviewed date above. That is the
+  only thing that check establishes; a citation that survives one pass is not
+  re-verified by the next review.
 
 ## 8. Response readiness
 
