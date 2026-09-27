@@ -1,5 +1,6 @@
-import { spawn, ChildProcess } from "child_process";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
+import { nodeRuntime } from "./runtime.js";
+import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
 
 const PROMPT = "Wine-dbg>";
 
@@ -31,7 +32,7 @@ function describeExit(code: number | null, signal: NodeJS.Signals | null): strin
  * that, so a reply is what sits between two prompts and nothing else.
  */
 export class WinedbgSession {
-  private process: ChildProcess | null = null;
+  private process: DebuggerChild | null = null;
   private currentPromise: { resolve: (out: string) => void; reject: (err: Error) => void } | null = null;
   // The command that promise is waiting on, so the error that refuses the next
   // one can name it.
@@ -46,7 +47,7 @@ export class WinedbgSession {
   // Rejects the in-flight start(). Only the latest start is stored, because
   // start() refuses to run beside another one.
   private initReject: ((err: Error) => void) | null = null;
-  private readyTimer: NodeJS.Timeout | null = null;
+  private readyTimer: Timer | null = null;
   // Set when a command timed out: the debugger still owes that command a prompt.
   // Draining it keeps a late reply from being handed to the next command as its
   // own output. Only one can be outstanding, since executeCommand refuses to
@@ -56,7 +57,8 @@ export class WinedbgSession {
 
   constructor(
     private readonly binary: string = DEFAULT_BINARY,
-    private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS
+    private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS,
+    private readonly runtime: SessionRuntime = nodeRuntime()
   ) {}
 
   /**
@@ -77,19 +79,8 @@ export class WinedbgSession {
     this.awaitingAbandonedPrompt = false;
     this.droppedChars = 0;
 
-    const child = spawn(this.binary, args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      // Its own process group, so terminate() can reach the debuggee winedbg
-      // started. Signalling winedbg alone leaves the debuggee running.
-      detached: true,
-    });
+    const child = this.runtime.spawn(this.binary, args);
     this.process = child;
-
-    // A command written to a pipe the debugger has already closed comes back as
-    // an EPIPE 'error' on the stream, and an unhandled one takes this process
-    // down with it. The handlers below already report the failure to whoever is
-    // waiting on a command, so the stream's own error carries nothing new.
-    child.stdin?.on("error", () => {});
 
     return new Promise<void>((resolve, reject) => {
       // Events from an already-replaced child (a kill lands after the next
@@ -97,7 +88,7 @@ export class WinedbgSession {
       const isCurrent = () => this.process === child;
 
       this.initReject = reject;
-      this.readyTimer = setTimeout(() => {
+      this.readyTimer = this.runtime.clock.setTimeout(() => {
         if (!isCurrent() || this.isReady) return;
         // Leaving the child alive would wedge the session: start refuses a
         // second run and executeCommand refuses an unready one.
@@ -108,9 +99,9 @@ export class WinedbgSession {
         reject(new Error(`Timeout waiting for ${this.binary} to print its first prompt (${this.readyTimeoutMs}ms)`));
       }, this.readyTimeoutMs);
 
-      const onData = (data: Buffer) => {
+      const onData = (chunk: string) => {
         if (!isCurrent()) return;
-        this.buffer += data.toString();
+        this.buffer += chunk;
         this.trimBuffer();
         if (this.isReady) {
           this.checkOutput();
@@ -126,10 +117,9 @@ export class WinedbgSession {
         this.scannedChars = this.buffer.length;
       };
 
-      child.stdout?.on("data", onData);
-      child.stderr?.on("data", onData);
+      child.onData(onData);
 
-      child.on("close", (code, signal) => {
+      child.onClose((code, signal) => {
         if (!isCurrent()) return;
         const wasReady = this.isReady;
         this.process = null;
@@ -143,7 +133,7 @@ export class WinedbgSession {
         this.failChild(new Error(describeExit(code, signal)), initReject);
       });
 
-      child.on("error", (error) => {
+      child.onError((error) => {
         if (!isCurrent()) return;
         this.clearReadyTimer();
         const initReject = this.isReady ? null : this.initReject;
@@ -177,7 +167,7 @@ export class WinedbgSession {
 
   private clearReadyTimer() {
     if (this.readyTimer === null) return;
-    clearTimeout(this.readyTimer);
+    this.readyTimer.cancel();
     this.readyTimer = null;
   }
 
@@ -202,26 +192,12 @@ export class WinedbgSession {
    * its own child, so a signal to winedbg alone would leave the program under
    * debug running with no debugger and no owner.
    */
-  private terminate(child: ChildProcess) {
-    this.signalTree(child, "SIGTERM");
+  private terminate(child: DebuggerChild) {
+    child.killTree("SIGTERM");
     // A debugger stopped inside a trap handler may not answer SIGTERM.
-    const grace = setTimeout(() => this.signalTree(child, "SIGKILL"), KILL_GRACE_MS);
+    const grace = this.runtime.clock.setTimeout(() => child.killTree("SIGKILL"), KILL_GRACE_MS);
     grace.unref();
-    child.once("close", () => clearTimeout(grace));
-  }
-
-  private signalTree(child: ChildProcess, signal: NodeJS.Signals) {
-    if (child.pid === undefined) {
-      child.kill(signal);
-      return;
-    }
-    try {
-      // Negative pid is the process group the detached child leads.
-      process.kill(-child.pid, signal);
-    } catch {
-      // No such group: fall back to the debugger itself.
-      child.kill(signal);
-    }
+    child.onClose(() => grace.cancel());
   }
 
   /** Bound the buffer, keeping the tail: the prompt that ends a reply is there. */
@@ -320,7 +296,7 @@ export class WinedbgSession {
       );
     }
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const timeout = this.runtime.clock.setTimeout(() => {
         this.abandonCurrent(
           new Error(`Command timed out after ${timeoutMs}ms: ${JSON.stringify(command)}`)
         );
@@ -328,11 +304,11 @@ export class WinedbgSession {
 
       this.currentPromise = {
         resolve: (out) => {
-          clearTimeout(timeout);
+          timeout.cancel();
           resolve(out);
         },
         reject: (err) => {
-          clearTimeout(timeout);
+          timeout.cancel();
           reject(err);
         }
       };

@@ -18,6 +18,10 @@ const HANG_TIMEOUT_MS = 200;
 // Short enough that the test is quick, and far below the default it overrides.
 const READY_TIMEOUT_MS = 200;
 const SLOW_REPLY_MS = 300;
+// Wall clock, so a loaded host can take longer than the reply itself. Generous
+// enough that the late reply lands before the next command; the abandoned-prompt
+// path itself is pinned deterministically in simulation.test.ts.
+const LATE_REPLY_WAIT_MS = SLOW_REPLY_MS * 3;
 // Long enough for a signalled process to be gone, well under the kill grace
 // session.ts allows before escalating to SIGKILL.
 const KILL_WAIT_MS = 1000;
@@ -158,14 +162,14 @@ describe("executeCommand", () => {
   test("accepts a new command once the abandoned reply lands", async () => {
     const s = await startedSession();
     await expect(s.executeCommand("sleep:" + SLOW_REPLY_MS, HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
-    await Bun.sleep(SLOW_REPLY_MS * 2);
+    await Bun.sleep(LATE_REPLY_WAIT_MS);
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
 
   test("never hands one command the output of an abandoned one", async () => {
     const s = await startedSession();
     await expect(s.executeCommand("sleep:" + SLOW_REPLY_MS, HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
-    await Bun.sleep(SLOW_REPLY_MS * 2);
+    await Bun.sleep(LATE_REPLY_WAIT_MS);
     const out = await s.executeCommand("sleep:" + SLOW_REPLY_MS, SLOW_REPLY_MS * 5);
     expect(out).toBe("ran: sleep:" + SLOW_REPLY_MS);
   });

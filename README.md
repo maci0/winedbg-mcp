@@ -25,6 +25,7 @@ Source layout, one concern per module:
 | `src/tools.ts` | the MCP tool list and the call dispatch |
 | `src/validate.ts` | validation of untyped tool arguments |
 | `src/session.ts` | the winedbg child process and its prompt protocol |
+| `src/runtime.ts` | the process and clock the session reaches the outside world through |
 | `src/config.ts` | reading and validating the environment |
 | `src/constants.ts` | defaults and limits shared across the above |
 
@@ -151,10 +152,24 @@ bun test
 
 `tests/session.test.ts` drives `WinedbgSession` against `tests/fake-winedbg.js`,
 a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the suite runs
-without Wine installed. `tests/validate.test.ts` covers the tool-argument
-boundary and `tests/config.test.ts` the environment parsing. Every session test
-spawns a real child and drives its stdio, so a failure is a real spawn, stream
-or lifecycle failure rather than a mock disagreeing.
+without Wine installed. It spawns a real child process and drives its stdio, so
+a failure is a real spawn, stream or lifecycle failure rather than a mock
+disagreeing, and it waits on real time, which is what covers the parts a
+simulator cannot: a pipe the debugger stops reading, a signal with no exit code,
+a debuggee that outlives its debugger.
+
+`tests/simulation.test.ts` covers the same state machine with no process and no
+host clock. It supplies its own `SessionRuntime` (see `src/runtime.ts`): a
+virtual clock and a debugger in memory. One seed chooses every reply delay,
+chunking pattern, crash and kill outcome, so a run is reproducible and a failure
+prints the seed that produced it:
+
+```bash
+WINEDBG_MCP_SIM_SEED=1014 bun test tests/simulation.test.ts
+```
+
+`tests/validate.test.ts` covers the tool-argument boundary and
+`tests/config.test.ts` the environment parsing described above.
 
 ## Troubleshooting
 
