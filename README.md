@@ -58,6 +58,13 @@ Example for an MCP client configuration:
 Both are optional and read once at startup. There are no secrets and no config
 file: the environment is the only place to set these.
 
+That says what this server reads, not what its process holds. `winedbg` is
+started with the server's whole environment and working directory inherited, so
+anything the launcher put in the environment is visible to `winedbg` and to
+whatever program is being debugged. Keep credentials out of the environment a
+debugging server is launched from. `docs/THREAT_MODEL.md` records this and the
+rest of the attack surface.
+
 | Variable | Default | Valid values |
 | --- | --- | --- |
 | `WINEDBG_MCP_BINARY` | `winedbg` (found on `PATH`) | A non-empty command name or path |
