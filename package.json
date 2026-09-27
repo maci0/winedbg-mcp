@@ -1,0 +1,25 @@
+{
+  "name": "winedbg-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for winedbg",
+  "type": "module",
+  "packageManager": "bun@1.4.0",
+  "main": "build/index.js",
+  "bin": {
+    "winedbg-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x build/index.js",
+    "start": "bun build/index.js",
+    "dev": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.0"
+  }
+}

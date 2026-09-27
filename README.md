@@ -71,8 +71,35 @@ This server provides the following tools:
 
 - **`winedbg_start`**: Start `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works, such as the program to launch (e.g. `{"args": ["myapp.exe"]}`).
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
-  Takes an optional `timeout` in milliseconds (default 30000, maximum 600000).
+  Takes an optional `timeout` in milliseconds (default 30000, maximum 600000) and an optional
+  `requestId` (at most 128 characters) for retrying a command.
 - **`winedbg_stop`**: Stop the active `winedbg` session.
+
+### Retrying a command
+
+A command reaches the debugger every time it is sent, and most of them are not
+safe to send twice: `cont` resumes a program that already resumed, `set`
+rewrites a value, `x` reads a target that has moved on. So a retry of a command
+whose answer was lost, or that timed out with the debugger still owing the
+prompt, has to be recognizable as the same command. Pass the same `requestId`
+on the retry:
+
+```json
+{"command": "break main", "requestId": "break-main-1"}
+```
+
+A repeat under that id returns the first answer, or the first failure, and
+sends nothing to the debugger. A repeat arriving while the command is still
+running joins that run instead of starting a second one. The same id with a
+different command is refused rather than answered with the wrong output.
+
+The server keeps the last 32 answers per session and forgets the rest, and
+`winedbg_stop` and `winedbg_start` clear them: an id replayed into a new session
+runs there for the first time. Without a `requestId`, every call is a new run.
+
+`winedbg_start` and `winedbg_stop` need no such key. A second `winedbg_start`
+is refused while a session runs, so no second debugger is ever spawned, and a
+second `winedbg_stop` is a no-op.
 
 ### Command framing
 
