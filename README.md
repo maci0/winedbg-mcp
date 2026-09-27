@@ -15,8 +15,9 @@ against a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the
 suite needs no Wine. No test here has been run against a real `winedbg`: the
 debugger is the one thing the fixtures replace, so the suite proves the prompt
 protocol and the tool argument handling, not Wine itself. See
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), which is still written against
-this README as a specification rather than against the source, and says so.
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) records the attack surface, the
+trust boundaries and the mitigations, read off the source rather than off this
+README.
 [`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.
 
 Source layout, one concern per module:
@@ -152,10 +153,15 @@ so the log is the whole surface.
 Every tool call is recorded on stderr, which is the operator's log and not the
 reply stream, since the program under debug writes to that stream and could
 otherwise forge a record of what it did. A start logs its arguments, a command
-logs the command, its timeout and the size of its reply, a stop logs that it
-happened, and a failure logs the tool and the message. Control characters are
-stripped from the recorded text and it is truncated, so a command cannot forge
-log records or flood the log.
+that is sent logs the command at `debug`, a command that times out logs the
+command and its timeout at `error`, a stop shows up as the session's exit, and a
+failure logs the tool and the message.
+
+Each line is a JSON object, so a control character in a command is escaped
+rather than able to break the one-line parse, and a recorded field is at most as
+long as the argument limits above (4096 characters). Nothing bounds how many
+records a session writes, and no reply is logged, so the log is a record of what
+was asked for and not of what came back.
 
 ### Command framing
 
@@ -299,11 +305,10 @@ together with `tests/` so a mistyped test helper fails the build rather than the
 suite.
 
 Formatting is Biome's, and the line width is 120 columns, the width the tree was
-already written to. `src/index.ts` keeps four scoped `noConsole` suppressions:
-stdout carries the MCP JSON-RPC stream, so the configuration failure, the audit
-log, the startup banner and the fatal error path have to go to stderr. It also
-keeps one `noControlCharactersInRegex` suppression on the audit log's strip
-pattern, where matching control characters is the point.
+already written to. `src/index.ts` keeps one scoped `noConsole` suppression:
+stdout carries the MCP JSON-RPC stream, so the configuration failure has to go to
+stderr. Everything else it writes goes through the logger, which writes to
+stderr by construction (`src/logger.ts:55-58`).
 
 ## Troubleshooting
 

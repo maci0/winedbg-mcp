@@ -11,6 +11,11 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 
 ### Added
 
+- `docs/THREAT_MODEL.md` rewritten against the source: the entry-point
+  inventory, the trust boundaries and a sixth one for the operator's log, the
+  assets, the threats per boundary, the controls that exist, and the claims
+  the project's own documentation makes, each checked against a file in this
+  tree.
 - Structured logging to stderr: one JSON object per line, with a `time`, a
   `level`, a fixed `message` and flat named fields. Every tool call logs its
   start, its outcome and how long it took under one `callId`, and a session logs
@@ -42,6 +47,14 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 
 ### Fixed
 
+- Three README claims the code did not implement: that the audit log strips
+  control characters and truncates the text it records, that a command logs the
+  size of its reply, and that `src/index.ts` carries four `noConsole`
+  suppressions and a `noControlCharactersInRegex` one. Each now says what the
+  code does. The threat model recorded all three as false before the README was
+  corrected.
+- The threat model claimed the tool arguments were unbounded and that nothing was
+  logged, both of which the code had implemented since the last pass.
 - A reply that split a multi-byte character across two pipe reads decoded as two
   replacement characters. The child's output now goes through a per-stream
   `StringDecoder`, so a character the pipe cut in half is the one character it
