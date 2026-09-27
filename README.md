@@ -159,6 +159,12 @@ with an unpaired surrogate.
 4. Call `winedbg_execute` with `{"command": "bt"}` to get a backtrace.
 5. Call `winedbg_stop` when finished.
 
+The debugger gets a process group of its own, and stopping signals the whole
+group, so the program under debug does not outlive the debugger that owns it. A
+`winedbg_stop` asks with `SIGTERM` and escalates to `SIGKILL` two seconds later.
+When the server itself is exiting there is no time left to ask, so it signals
+`SIGKILL` to the group outright rather than leave a debuggee behind.
+
 ## Command line
 
 The server takes no positional arguments and no options other than the two

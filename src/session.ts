@@ -472,8 +472,28 @@ export class WinedbgSession {
     // here rather than left to come up after the caller stopped it.
     this.launchId++;
     this.stopRequested = true;
-    const child = this.process;
+    const child = this.detach();
     if (!child) return;
+    this.terminate(child);
+  }
+
+  /**
+   * End the debugger and the debuggee under it without waiting, for a process
+   * that is already exiting. The grace period stop() relies on is a timer on
+   * the event loop, and an exit handler runs with the loop already drained, so
+   * the escalation it schedules would never fire and a debuggee that ignores
+   * SIGTERM would outlive the server. There is no time left to ask nicely.
+   */
+  stopImmediately() {
+    const child = this.detach();
+    if (!child) return;
+    child.killTree("SIGKILL");
+  }
+
+  /** Release the session and settle everything waiting on it, leaving the child to signal. */
+  private detach(): DebuggerChild | null {
+    const child = this.process;
+    if (!child) return null;
 
     this.process = null;
     this.resetState();
@@ -489,8 +509,7 @@ export class WinedbgSession {
       this.currentPromise.reject(new Error("winedbg stopped manually"));
       this.releaseCurrent();
     }
-
-    this.terminate(child);
+    return child;
   }
 
   /** Whether a debugger process is held, ready or not. Not whether it is at its prompt. */

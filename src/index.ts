@@ -92,8 +92,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // winedbg is a child of this process, so nothing else reaps it when the client
-// hangs up and this process goes away.
-process.on("exit", () => session.stop());
+// hangs up and this process goes away. An exit handler has no event loop left
+// to wait in, so the tree is killed outright rather than asked to leave.
+process.on("exit", () => session.stopImmediately());
 
 function shutdown() {
   session.stop();

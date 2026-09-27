@@ -4,11 +4,11 @@
 // hang (never prompts again), pid (the debuggee pid), "sleep:<ms>" (replies after
 // <ms>), warn (writes to stderr), silent (prompt only), close-stdin (stops
 // reading commands), "noise:<n>" (a reply of n characters), "dribble:<n>" (the
-// same, in pieces small enough to arrive one read at a time), "utf8:<text>" (that
-// text in UTF-8, one byte per write, so multi-byte characters straddle reads),
-// "astral:<n>" (n emoji, two UTF-16 units each), "split:<n>" (n
-// multi-byte characters, the last one cut across two writes), anything else
-// echoes back.
+// same, in pieces small enough to arrive one read at a time), utf8 (a non-ASCII
+// reply written one byte at a time, so every character spans two reads),
+// "utf8:<text>" (that text in UTF-8, one byte per write), "astral:<n>" (n emoji,
+// two UTF-16 units each), "split:<n>" (n multi-byte characters, the last one cut
+// across two writes), anything else echoes back.
 // Invoked with "die" as argv[2] it exits before printing a prompt; with "mute"
 // it stays alive and never prints one, so the caller hits its start timeout;
 // with "grandchild" it starts a debuggee of its own, which is what a real
@@ -113,6 +113,23 @@ function handle(line) {
       setTimeout(writeNext, 1);
     };
     writeNext();
+    return;
+  }
+  if (line === "utf8") {
+    // One byte per write, spaced far enough apart that each lands in its own
+    // pipe read. Every multi-byte character is then split across two reads,
+    // which is what a debuggee printing non-ASCII in small bursts does.
+    const bytes = Buffer.from("ran: ünïcode ✓\n", "utf8");
+    let sent = 0;
+    const writeByte = () => {
+      if (sent >= bytes.length) {
+        process.stdout.write("Wine-dbg>");
+        return;
+      }
+      process.stdout.write(Buffer.from([bytes[sent++]]));
+      setTimeout(writeByte, 3);
+    };
+    writeByte();
     return;
   }
   if (line.startsWith("split:")) {

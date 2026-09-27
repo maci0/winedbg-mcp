@@ -15,7 +15,14 @@ import { DEFAULT_READY_TIMEOUT_MS } from "../src/constants.js";
 import { WinedbgSession } from "../src/session.js";
 
 const FAKE = new URL("fake-winedbg.js", import.meta.url).pathname;
+// Kept below SLOW_REPLY_MS, so "sleep:<SLOW_REPLY_MS>" is still outstanding when
+// the timeout fires. Every test that leans on that ordering is timed off this
+// value, which is why it is a wall clock as tight as the ordering allows.
 const HANG_TIMEOUT_MS = 200;
+// The one test that needs a command to still be in flight a moment later, on a
+// host busy enough that 200ms can pass between two calls. Loose enough that the
+// rejection, not the timeout, is what the second command sees.
+const IN_FLIGHT_TIMEOUT_MS = 1000;
 // Short enough that the test is quick, and far below the default it overrides.
 const READY_TIMEOUT_MS = 200;
 const SLOW_REPLY_MS = 300;
@@ -163,7 +170,7 @@ describe("executeCommand", () => {
 
   test("rejects a second command while one is in flight", async () => {
     const s = await startedSession();
-    const first = s.executeCommand("hang", HANG_TIMEOUT_MS);
+    const first = s.executeCommand("hang", IN_FLIGHT_TIMEOUT_MS);
     await expect(s.executeCommand("bt")).rejects.toThrow(/already in progress/);
     await expect(first).rejects.toThrow(/timed out/);
   });
@@ -281,6 +288,15 @@ describe("executeCommand", () => {
     20000
   );
 
+  test("keeps multi-byte characters whole when a read splits them", async () => {
+    const s = await startedSession();
+    // The reply arrives one byte per read, so every character in it is cut in
+    // half by a chunk boundary. Decoding each chunk on its own would turn them
+    // into U+FFFD and hand back a corrupted reply.
+    const out = await s.executeCommand("utf8");
+    expect(out).toBe("ran: ünïcode ✓");
+  });
+
   test("rejects the in-flight command when the debugger exits", async () => {
     const s = await startedSession();
     await expect(s.executeCommand("crash")).rejects.toThrow(/exited with code 3/);
@@ -320,6 +336,24 @@ describe("stop", () => {
     // gone, not merely signalled.
     await Bun.sleep(KILL_WAIT_MS);
     expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  test("kills the debuggee without an event loop left to escalate on", async () => {
+    const s = newSession();
+    await s.start([FAKE, "grandchild"]);
+    const pid = Number((await s.executeCommand("pid")).replace("ran: ", ""));
+    expect(pid).toBeGreaterThan(0);
+    // This is what an exit handler calls. The grace stop() relies on is a
+    // timer, and a timer scheduled with the loop already drained never runs, so
+    // this path has to take the tree down on the first signal.
+    s.stopImmediately();
+    await Bun.sleep(KILL_WAIT_MS);
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  test("is a no-op when nothing is running", () => {
+    const s = new WinedbgSession();
+    expect(() => s.stopImmediately()).not.toThrow();
   });
 
   test("settles a start that is still waiting for its prompt", async () => {

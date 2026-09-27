@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 /**
  * A scheduled callback. The session never needs the handle for anything but
@@ -70,9 +71,24 @@ class NodeDebuggerChild implements DebuggerChild {
 
     this.stdin = child.stdin;
     for (const stream of [child.stdout, child.stderr]) {
+      // A pipe read ends wherever the writer's next write begins, which can be
+      // in the middle of a multi-byte character. Decoding each chunk on its own
+      // turns every such character into U+FFFD, so the decoder carries the
+      // partial sequence across reads instead.
+      const decoder = new StringDecoder("utf8");
       stream?.on("data", (data: Buffer) => {
-        const chunk = data.toString();
-        for (const listener of this.dataListeners) listener(chunk);
+        const chunk = decoder.write(data);
+        if (chunk.length > 0) {
+          for (const listener of this.dataListeners) listener(chunk);
+        }
+      });
+      // Whatever the last read held of an unfinished character is still text the
+      // debugger wrote, and the close event is the last chance to hand it over.
+      stream?.on("end", () => {
+        const tail = decoder.end();
+        if (tail.length > 0) {
+          for (const listener of this.dataListeners) listener(tail);
+        }
       });
     }
     child.on("close", (code, signal) => {
