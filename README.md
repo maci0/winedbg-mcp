@@ -90,7 +90,7 @@ To use this with an MCP client (like Claude Desktop or Gemini), configure the MC
 
 ### Environment variables
 
-All three are optional and read once at startup. There are no secrets and no
+All four are optional and read once at startup. There are no secrets and no
 config file: the environment is the only place to set these.
 
 That says what this server reads, not what its process holds. `winedbg` is
@@ -104,6 +104,7 @@ rest of the attack surface.
 | --- | --- | --- |
 | `WINEDBG_MCP_BINARY` | `winedbg` (found on `PATH`) | A non-empty command name or path, with no NUL byte in it |
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | `10000` | Whole milliseconds, 1 to 600000. How long `winedbg_start` waits for the first prompt. Raise it for a cold wineprefix, which takes far longer than a warm one |
+| `WINEDBG_MCP_COMMAND_TIMEOUT_MS` | `30000` | Whole milliseconds, 1 to 600000. How long `winedbg_execute` waits for a reply when the call names no `timeout` of its own. A `cont` on a busy process is slower than 30s on some hosts, and the per-call `timeout` argument still overrides this one |
 | `WINEDBG_MCP_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Below this level a line is never written |
 
 A value the server cannot use stops it at startup with the variable named,
@@ -113,7 +114,7 @@ would otherwise be ignored while the deployment ran on defaults. The startup lin
 on stderr reports the values in effect:
 
 ```json
-{"time":"2026-09-27T10:00:00.000Z","level":"info","message":"winedbg MCP server running on stdio","version":"1.0.0","config":"WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READY_TIMEOUT_MS=10000 WINEDBG_MCP_LOG_LEVEL=info"}
+{"time":"2026-09-27T10:00:00.000Z","level":"info","message":"winedbg MCP server running on stdio","version":"1.0.0","config":"WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READY_TIMEOUT_MS=10000 WINEDBG_MCP_COMMAND_TIMEOUT_MS=30000 WINEDBG_MCP_LOG_LEVEL=info"}
 ```
 
 ### Logging
@@ -146,7 +147,7 @@ so the log is the whole surface.
 
 - **`winedbg_start`**: Start or attach to `winedbg`. Use this before running any commands. Optional `args` are passed to `winedbg` unchanged, so anything it accepts works: the program to launch (e.g. `{"args": ["myapp.exe"]}`) or a PID to attach to (`{"args": ["1234"]}`). `args` must be an array of strings; a bare string is rejected rather than split into one argument per character. At most 64 entries, each at most 4096 characters, none carrying a NUL: an argv entry is cut at the first NUL by the C runtime, and an unbounded array is a caller filling the process table rather than a debugging session.
 - **`winedbg_execute`**: Execute one command in the active `winedbg` session (e.g., `{"command": "bt"}`).
-  Takes an optional `timeout` in milliseconds (default 30000, minimum 1, maximum 600000). The command is at most 4096 characters and carries no line break or NUL, for the reason under command framing below.
+  Takes an optional `timeout` in milliseconds (minimum 1, maximum 600000), defaulting to `WINEDBG_MCP_COMMAND_TIMEOUT_MS` so a deployment can set it once rather than on every call. The command is at most 4096 characters and carries no line break or NUL, for the reason under command framing below.
 - **`winedbg_stop`**: Stop the active `winedbg` session. A start that follows a stop waits for the stopped debugger to be gone, so alternating the two cannot leave one detached process group, each holding a debuggee, per cycle. A stop returns once the signal is sent, since a tool call should not be held open for a grace period; the wait happens where nothing is waiting on it, in the next `winedbg_start` and in the server's own exit on SIGINT, SIGTERM or the end of stdin.
 
 ### Audit log

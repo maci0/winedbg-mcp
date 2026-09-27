@@ -245,6 +245,23 @@ describe("executeCommand", () => {
     await expect(s.executeCommand("hang", HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
   });
 
+  // A command with no timeout of its own waits the deployment's default, not the
+  // built-in one: a session built from WINEDBG_MCP_COMMAND_TIMEOUT_MS has to
+  // behave like the deployment described, or the variable only reaches the tool
+  // description and nothing else.
+  test("a command with no timeout waits the configured default", async () => {
+    const s = new WinedbgSession(
+      process.execPath,
+      undefined,
+      undefined,
+      createLogger("debug", () => {}),
+      SLOW_REPLY_MS * 10,
+    );
+    session = s;
+    await s.start([FAKE]);
+    expect(await s.executeCommand(`sleep:${SLOW_REPLY_MS}`)).toBe(`ran: sleep:${SLOW_REPLY_MS}`);
+  });
+
   test("rejects a multi-line command", async () => {
     const s = await startedSession();
     // Two lines would draw two prompts and put every later reply one command behind.
@@ -355,9 +372,7 @@ describe("executeCommand", () => {
     // The debugger is still there, only its command pipe is broken, so the
     // refusal names both the command and the pipe. A timeout here would report a
     // debugger that had gone away as one that had not answered.
-    await expect(pending).rejects.toThrow(
-      'winedbg failed while running "bt": winedbg command pipe: write EPIPE',
-    );
+    await expect(pending).rejects.toThrow('winedbg failed while running "bt": winedbg command pipe: write EPIPE');
     expect(s.isRunning()).toBe(true);
   });
 

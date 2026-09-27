@@ -135,6 +135,7 @@ export class WinedbgSession {
     private readonly readyTimeoutMs: number = DEFAULT_READY_TIMEOUT_MS,
     private readonly runtime: SessionRuntime = nodeRuntime(),
     private readonly log: Logger = stderrLogger,
+    private readonly commandTimeoutMs: number = DEFAULT_COMMAND_TIMEOUT_MS,
   ) {}
 
   /**
@@ -571,9 +572,11 @@ export class WinedbgSession {
    * flight, a prompt still owed to a command that timed out, a command
    * carrying a line terminator, and a debugger whose stdin pipe is gone.
    * `timeoutMs` bounds the wait for the reply, not for the command to take
-   * effect; the command keeps running either way.
+   * effect; the command keeps running either way. Omitted, it is the deployment's
+   * own default rather than the built-in one, so a raised ceiling is not undone
+   * by a caller that leaves the field out.
    */
-  async executeCommand(command: string, timeoutMs: number = DEFAULT_COMMAND_TIMEOUT_MS): Promise<string> {
+  async executeCommand(command: string, timeoutMs: number = this.commandTimeoutMs): Promise<string> {
     if (!this.process || !this.isReady) {
       throw new Error("winedbg is not running. Please start it first.");
     }

@@ -114,33 +114,43 @@ describe("requireString", () => {
 
 describe("optionalTimeout", () => {
   test("defaults when absent", () => {
-    expect(optionalTimeout(undefined)).toBe(DEFAULT_COMMAND_TIMEOUT_MS);
+    expect(optionalTimeout(undefined, DEFAULT_COMMAND_TIMEOUT_MS)).toBe(DEFAULT_COMMAND_TIMEOUT_MS);
+  });
+
+  // The default is the deployment's, not the constant's: a call that omits the
+  // field is the ordinary case, and returning the built-in one there would undo
+  // every WINEDBG_MCP_COMMAND_TIMEOUT_MS a deployment set. It is config, already
+  // range-checked at startup, so it is passed through rather than re-checked.
+  test("an absent field takes the default it was given", () => {
+    for (const defaultMs of [1, 120000, MAX_COMMAND_TIMEOUT_MS]) {
+      expect(optionalTimeout(undefined, defaultMs)).toBe(defaultMs);
+    }
   });
 
   test("passes a sane value through", () => {
-    expect(optionalTimeout(500)).toBe(500);
+    expect(optionalTimeout(500, DEFAULT_COMMAND_TIMEOUT_MS)).toBe(500);
     // The lower bound is the one value that survives every rejection below, so
     // pin it next to them rather than leaving the range open at the bottom.
-    expect(optionalTimeout(1)).toBe(1);
-    expect(optionalTimeout(MAX_COMMAND_TIMEOUT_MS)).toBe(MAX_COMMAND_TIMEOUT_MS);
+    expect(optionalTimeout(1, DEFAULT_COMMAND_TIMEOUT_MS)).toBe(1);
+    expect(optionalTimeout(MAX_COMMAND_TIMEOUT_MS, DEFAULT_COMMAND_TIMEOUT_MS)).toBe(MAX_COMMAND_TIMEOUT_MS);
   });
 
   test("rejects values that expire before the debugger can answer", () => {
-    expect(() => optionalTimeout(0)).toThrow(/between 1 and/);
-    expect(() => optionalTimeout(-1)).toThrow(/between 1 and/);
+    expect(() => optionalTimeout(0, DEFAULT_COMMAND_TIMEOUT_MS)).toThrow(/between 1 and/);
+    expect(() => optionalTimeout(-1, DEFAULT_COMMAND_TIMEOUT_MS)).toThrow(/between 1 and/);
   });
 
   test("rejects non-finite and out-of-range values", () => {
-    expect(() => optionalTimeout(NaN)).toThrow(/between 1 and/);
-    expect(() => optionalTimeout(Infinity)).toThrow(/between 1 and/);
-    expect(() => optionalTimeout(MAX_COMMAND_TIMEOUT_MS + 1)).toThrow(/between 1 and/);
+    expect(() => optionalTimeout(NaN, DEFAULT_COMMAND_TIMEOUT_MS)).toThrow(/between 1 and/);
+    expect(() => optionalTimeout(Infinity, DEFAULT_COMMAND_TIMEOUT_MS)).toThrow(/between 1 and/);
+    expect(() => optionalTimeout(MAX_COMMAND_TIMEOUT_MS + 1, DEFAULT_COMMAND_TIMEOUT_MS)).toThrow(/between 1 and/);
   });
 
   test("rejects a fraction of a millisecond, which is below the stated floor", () => {
-    expect(() => optionalTimeout(0.5)).toThrow(/between 1 and/);
+    expect(() => optionalTimeout(0.5, DEFAULT_COMMAND_TIMEOUT_MS)).toThrow(/between 1 and/);
   });
 
   test("rejects a numeric string", () => {
-    expect(() => optionalTimeout("1000")).toThrow(/between 1 and/);
+    expect(() => optionalTimeout("1000", DEFAULT_COMMAND_TIMEOUT_MS)).toThrow(/between 1 and/);
   });
 });

@@ -80,6 +80,7 @@ configuration, not about the environment the process holds, which is row 2.
 | Error text returned as tool text | Response carrying child and OS failure detail | `src/tools.ts:99-103` | None; the message is passed through as produced |
 | `WINEDBG_MCP_BINARY` | Environment, names the executable | `src/config.ts:65-78` | Non-empty, NUL-free, read once; no path check |
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | Environment | `src/config.ts:80-91` | Whole milliseconds, 1 to 600000 |
+| `WINEDBG_MCP_COMMAND_TIMEOUT_MS` | Environment, bounds a tool call's wait | `src/config.ts:93-102` | Whole milliseconds, 1 to 600000; the per-call `timeout` argument may lower or raise it within the same bound |
 | `WINEDBG_MCP_LOG_LEVEL` | Environment | `src/config.ts:53-63` | One of `debug`, `info`, `warn`, `error` (`src/constants.ts:19`) |
 | Any other `WINEDBG_MCP_*` name | Environment | `src/config.ts:35-39` | Refused, and the name is in the error: startup aborts |
 | The rest of the process environment | Inherited by winedbg and by whatever winedbg starts | `src/runtime.ts:169-175` | None; `spawn` passes no `env` |
@@ -152,16 +153,17 @@ key, so no normalization form is chosen for it: the decoded text is passed on as
 it arrives. If a later revision compares child output against anything, that
 comparison needs a normalization policy of its own.
 
-**B4: environment to server.** Three variables are read once, at startup
+**B4: environment to server.** Four variables are read once, at startup
 (`src/config.ts:15-18`): `WINEDBG_MCP_BINARY` names the executable that B2
-spawns, `WINEDBG_MCP_READY_TIMEOUT_MS` bounds the first prompt wait, and
-`WINEDBG_MCP_LOG_LEVEL` decides how much of the audit trail is written. Whoever
-sets them chooses the binary, the timeout and the level. There is no signature or
-allowlist on the path. This is the boundary an attacker has to reach for code
-execution with no client at all, and the one with the largest blast radius,
-because the same environment is forwarded whole to the child. A value the server
-cannot use aborts startup with the variable named (`src/index.ts:37-42`), so a
-typo fails loudly rather than running on defaults.
+spawns, `WINEDBG_MCP_READY_TIMEOUT_MS` bounds the first prompt wait,
+`WINEDBG_MCP_COMMAND_TIMEOUT_MS` bounds the wait for a reply when a call names no
+`timeout` of its own, and `WINEDBG_MCP_LOG_LEVEL` decides how much of the audit
+trail is written. Whoever sets them chooses the binary, the timeouts and the
+level. There is no signature or allowlist on the path. This is the boundary an
+attacker has to reach for code execution with no client at all, and the one with
+the largest blast radius, because the same environment is forwarded whole to the
+child. A value the server cannot use aborts startup with the variable named
+(`src/index.ts:37-42`), so a typo fails loudly rather than running on defaults.
 
 **B5: build to runtime.** The build emits `build/index.js` and the client
 configuration points at that path (`README.md:66-88`). The tree has

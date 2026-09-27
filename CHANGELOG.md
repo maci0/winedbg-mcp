@@ -16,6 +16,13 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
   assets, the threats per boundary, the controls that exist, and the claims
   the project's own documentation makes, each checked against a file in this
   tree.
+- `WINEDBG_MCP_COMMAND_TIMEOUT_MS` (whole milliseconds, 1 to 600000; default
+  `30000`). The wait `winedbg_execute` gives a reply when the call names no
+  `timeout` of its own was the built-in constant, so a deployment whose commands
+  are slower than 30s could only fix it by passing `timeout` on every call. The
+  value is validated at startup like the other variables, reported in the
+  startup line, and named in the `timeout` description the model reads, so the
+  advertised default is the one a call actually gets.
 - Structured logging to stderr: one JSON object per line, with a `time`, a
   `level`, a fixed `message` and flat named fields. Every tool call logs its
   start, its outcome and how long it took under one `callId`, and a session logs

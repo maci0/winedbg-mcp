@@ -16,6 +16,10 @@ Environment:
   WINEDBG_MCP_BINARY             winedbg command or path. Default: winedbg
   WINEDBG_MCP_READY_TIMEOUT_MS  Milliseconds to wait for the first winedbg
                                 prompt, 1 to 600000. Default: 10000
+  WINEDBG_MCP_COMMAND_TIMEOUT_MS
+                                Milliseconds winedbg_execute waits for a reply
+                                when the call names no timeout of its own,
+                                1 to 600000. Default: 30000
   WINEDBG_MCP_LOG_LEVEL          debug, info, warn or error. Default: info
 
 Example MCP client configuration:

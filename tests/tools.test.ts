@@ -2,8 +2,15 @@
 // the entrypoint where nothing could reach it without starting a server.
 
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_COMMAND_TIMEOUT_MS } from "../src/constants.js";
-import { callTool, TOOLS, type ToolSession } from "../src/tools.js";
+import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/constants.js";
+import { callTool, describeTools, type ToolSession } from "../src/tools.js";
+
+// The value a deployment with no WINEDBG_MCP_COMMAND_TIMEOUT_MS runs on.
+const DEPLOY_TIMEOUT_MS = DEFAULT_COMMAND_TIMEOUT_MS;
+
+/** callTool as index.ts calls it, with the configured default in the fourth place. */
+const call = (session: ToolSession, name: string, args?: Record<string, unknown>) =>
+  callTool(session, name, args, DEPLOY_TIMEOUT_MS);
 
 function stubSession(overrides: Partial<ToolSession> = {}): ToolSession {
   const session: ToolSession = {
@@ -14,31 +21,24 @@ function stubSession(overrides: Partial<ToolSession> = {}): ToolSession {
   return { ...session, ...overrides };
 }
 
-// The schemas are plain object literals, so their inferred types are three
-// unrelated shapes and none of them models `required`. The point of these tests
-// is the wire shape the model sees, so read it through one name.
-type Schema = { properties: Record<string, unknown>; required?: string[] };
-
-function schemaOf(name: string): Schema {
-  const tool = TOOLS.find((candidate) => candidate.name === name);
-  if (tool === undefined) throw new Error(`no tool named ${name}`);
-  return tool.inputSchema as Schema;
-}
-
 describe("tool list", () => {
-  // The three schemas are separate literal types, so a name-keyed read of one
-  // of them needs a shape the assertions can talk about: what the tool
-  // advertises, not how it was written. A name with no tool fails here rather
-  // than asserting against undefined.
-  type AdvertisedSchema = { properties: object; required?: readonly string[] };
+  // The three schemas are separate literal types and only one of them declares
+  // `required`, so a name-keyed read needs a shape the assertions can talk
+  // about: what the tool advertises, not how it was written. A name with no
+  // tool fails here rather than asserting against undefined.
+  type AdvertisedSchema = { properties: Record<string, unknown>; required?: readonly string[] };
   function schemaFor(name: string): AdvertisedSchema {
-    const tool = TOOLS.find((candidate) => candidate.name === name);
+    const tool = describeTools(DEPLOY_TIMEOUT_MS).find((candidate) => candidate.name === name);
     if (!tool) throw new Error(`no tool named ${name}`);
     return tool.inputSchema;
   }
 
   test("names the three tools the handler dispatches", () => {
-    expect(TOOLS.map((tool) => tool.name)).toEqual(["winedbg_start", "winedbg_execute", "winedbg_stop"]);
+    expect(describeTools(DEPLOY_TIMEOUT_MS).map((tool) => tool.name)).toEqual([
+      "winedbg_start",
+      "winedbg_execute",
+      "winedbg_stop",
+    ]);
   });
 
   // The SDK does not enforce the schema it advertates, so a name that drifts
@@ -46,9 +46,9 @@ describe("tool list", () => {
   // model sends the advertised field, the handler reads undefined, and the call
   // fails at the session instead of at the boundary. Pin the advertised names.
   test("advertises the argument names the handler reads", () => {
-    expect(Object.keys(schemaOf("winedbg_start").properties)).toEqual(["args"]);
-    expect(Object.keys(schemaOf("winedbg_execute").properties)).toEqual(["command", "timeout"]);
-    expect(Object.keys(schemaOf("winedbg_stop").properties)).toEqual([]);
+    expect(Object.keys(schemaFor("winedbg_start").properties)).toEqual(["args"]);
+    expect(Object.keys(schemaFor("winedbg_execute").properties)).toEqual(["command", "timeout"]);
+    expect(Object.keys(schemaFor("winedbg_stop").properties)).toEqual([]);
   });
 
   // Without this, a model turn that omits the command reaches the debugger as an
@@ -59,12 +59,31 @@ describe("tool list", () => {
     expect(schemaFor("winedbg_start").required).toBeUndefined();
     expect(schemaFor("winedbg_stop").required).toBeUndefined();
   });
+
+  // The description is what the model reads before choosing a timeout. A list
+  // built from the constant while the deployment waits on something else tells
+  // the model to pass a value the operator had already raised, or to give up on
+  // a slow command the server would have waited for.
+  test("names the default the call gets, and the variable that sets it", () => {
+    // Narrowed on the literal name, so the schema read is the execute tool's
+    // own and the collected list is checked for length: a list with no execute
+    // tool in it must fail, not pass by asserting nothing.
+    const described: string[] = [];
+    for (const tool of describeTools(120000)) {
+      if (tool.name !== "winedbg_execute") continue;
+      described.push(tool.inputSchema.properties.timeout.description);
+    }
+    expect(described).toHaveLength(1);
+    expect(described[0]).toContain("120000ms");
+    expect(described[0]).toContain("WINEDBG_MCP_COMMAND_TIMEOUT_MS");
+    expect(described[0]).toContain(String(MAX_COMMAND_TIMEOUT_MS));
+  });
 });
 
 describe("callTool", () => {
   test("start passes the args through and reports them", async () => {
     let started: string[] | undefined;
-    const result = await callTool(
+    const result = await call(
       stubSession({
         start: async (args: string[]) => {
           started = args;
@@ -79,25 +98,25 @@ describe("callTool", () => {
   });
 
   test("execute reports the debugger output", async () => {
-    const result = await callTool(stubSession(), "winedbg_execute", { command: "bt" });
+    const result = await call(stubSession(), "winedbg_execute", { command: "bt" });
     expect(result.content[0]?.text).toContain("#0 0x7b");
   });
 
   test("execute says so when the debugger answers with nothing", async () => {
-    const result = await callTool(stubSession({ executeCommand: async () => "" }), "winedbg_execute", {
+    const result = await call(stubSession({ executeCommand: async () => "" }), "winedbg_execute", {
       command: "step",
     });
     expect(result.content[0]?.text).toBe("(Command executed successfully, no output)");
   });
 
   test("a bad argument is an error result, not a protocol failure", async () => {
-    const result = await callTool(stubSession(), "winedbg_execute", { command: 42 });
+    const result = await call(stubSession(), "winedbg_execute", { command: 42 });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/non-empty string/);
   });
 
   test("a session failure is an error result", async () => {
-    const result = await callTool(
+    const result = await call(
       stubSession({
         executeCommand: async () => {
           throw new Error("winedbg is not running. Please start it first.");
@@ -111,12 +130,12 @@ describe("callTool", () => {
   });
 
   test("an unknown tool is a protocol error the client has to see", async () => {
-    await expect(callTool(stubSession(), "winedbg_nope", undefined)).rejects.toThrow(/Unknown tool/);
+    await expect(call(stubSession(), "winedbg_nope", undefined)).rejects.toThrow(/Unknown tool/);
   });
 
   test("stop ends the session the model is holding", async () => {
     let stops = 0;
-    const result = await callTool(
+    const result = await call(
       stubSession({
         stop: () => {
           stops++;
@@ -131,7 +150,7 @@ describe("callTool", () => {
   });
 
   test("a stop that fails is an error result, not a lost session", async () => {
-    const result = await callTool(
+    const result = await call(
       stubSession({
         stop: () => {
           throw new Error("winedbg is not running. Please start it first.");
@@ -146,7 +165,7 @@ describe("callTool", () => {
 
   test("execute defaults the timeout when the caller omits it", async () => {
     let seen: number | undefined;
-    await callTool(
+    await call(
       stubSession({
         executeCommand: async (_command: string, timeout: number) => {
           seen = timeout;
@@ -157,5 +176,41 @@ describe("callTool", () => {
       { command: "bt" },
     );
     expect(seen).toBe(DEFAULT_COMMAND_TIMEOUT_MS);
+  });
+
+  // A deployment that raised its ceiling through WINEDBG_MCP_COMMAND_TIMEOUT_MS
+  // must not be handed the built-in one back by a call that simply left the
+  // field out, which is the shape every model turn that omits a timeout takes.
+  test("a call with no timeout gets the deployment's default, not the constant", async () => {
+    let seen: number | undefined;
+    await callTool(
+      stubSession({
+        executeCommand: async (_command: string, timeout: number) => {
+          seen = timeout;
+          return "bt";
+        },
+      }),
+      "winedbg_execute",
+      { command: "bt" },
+      120000,
+    );
+    expect(seen).toBe(120000);
+  });
+
+  // An explicit value is the caller's, whatever the deployment set.
+  test("an explicit timeout overrides the deployment default", async () => {
+    let seen: number | undefined;
+    await callTool(
+      stubSession({
+        executeCommand: async (_command: string, timeout: number) => {
+          seen = timeout;
+          return "bt";
+        },
+      }),
+      "winedbg_execute",
+      { command: "bt", timeout: 500 },
+      120000,
+    );
+    expect(seen).toBe(500);
   });
 });

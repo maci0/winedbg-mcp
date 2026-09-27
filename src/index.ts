@@ -7,7 +7,7 @@ import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { WinedbgSession } from "./session.js";
-import { callTool, TOOLS, type ToolResult } from "./tools.js";
+import { callTool, describeTools, type ToolResult } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
 
 // The command line is resolved before the environment, so --help and --version
@@ -62,9 +62,10 @@ const server = new Server(
 const log = createLogger(config.logLevel, (line) => {
   process.stderr.write(`${line}\n`);
 });
-const session = new WinedbgSession(config.binary, config.readyTimeoutMs, undefined, log);
+const session = new WinedbgSession(config.binary, config.readyTimeoutMs, undefined, log, config.commandTimeoutMs);
+const tools = describeTools(config.commandTimeoutMs);
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
 // A tool call is a debugger command carrying the authority of the account the
 // server runs as, and the reply stream is written by the program under debug, so
@@ -82,7 +83,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   log.info("tool call started", { callId, tool });
   let result: ToolResult;
   try {
-    result = await callTool(session, tool, request.params.arguments);
+    result = await callTool(session, tool, request.params.arguments, config.commandTimeoutMs);
   } catch (error) {
     // The one failure that is not an error result: an unknown tool name, which
     // is a protocol error the client has to see. It still has to leave a line

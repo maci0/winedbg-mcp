@@ -10,6 +10,7 @@
 // call's output. No mocks, no virtual clock, nothing shared between tests.
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { DEFAULT_COMMAND_TIMEOUT_MS } from "../src/constants.js";
 import { WinedbgSession } from "../src/session.js";
 import { callTool, type ToolResult } from "../src/tools.js";
 
@@ -23,12 +24,16 @@ const LATE_REPLY_WAIT_MS = SLOW_REPLY_MS * 3;
 const ROUNDS = 4;
 const CALLS_PER_ROUND = 6;
 
+/** callTool as index.ts calls it, with the configured default in the fourth place. */
+const call = (s: WinedbgSession, name: string, args?: Record<string, unknown>) =>
+  callTool(s, name, args, DEFAULT_COMMAND_TIMEOUT_MS);
+
 let session: WinedbgSession | null = null;
 
 async function startedSession(): Promise<WinedbgSession> {
   const s = new WinedbgSession(process.execPath);
   session = s;
-  const started = await callTool(s, "winedbg_start", { args: [FAKE] });
+  const started = await call(s, "winedbg_start", { args: [FAKE] });
   expect(started.isError).toBeUndefined();
   return s;
 }
@@ -71,14 +76,14 @@ describe("concurrent tool calls", () => {
     // Both calls enter in the same tick, so the second finds the child the
     // first has already spawned rather than racing it for the slot.
     const [first, second] = await Promise.all([
-      callTool(s, "winedbg_start", { args: [FAKE] }),
-      callTool(s, "winedbg_start", { args: [FAKE] }),
+      call(s, "winedbg_start", { args: [FAKE] }),
+      call(s, "winedbg_start", { args: [FAKE] }),
     ]);
     const outcomes = [first, second];
     expect(outcomes.filter((result) => !isRefusal(result))).toHaveLength(1);
     expect(textOf(only(outcomes.filter(isRefusal)))).toMatch(/already running/);
     expect(s.isRunning()).toBe(true);
-    expect(textOf(await callTool(s, "winedbg_execute", { command: "bt" }))).toBe("ran: bt");
+    expect(textOf(await call(s, "winedbg_execute", { command: "bt" }))).toBe("ran: bt");
   });
 
   test("two commands racing for the session: one answer, one refusal, no crossed replies", async () => {
@@ -86,8 +91,8 @@ describe("concurrent tool calls", () => {
     // Both calls enter in the same tick, so whichever claims the command slot
     // first does it before the other looks.
     const outcomes = await Promise.all([
-      callTool(s, "winedbg_execute", { command: "bt", timeout: REPLY_TIMEOUT_MS }),
-      callTool(s, "winedbg_execute", { command: "info reg", timeout: REPLY_TIMEOUT_MS }),
+      call(s, "winedbg_execute", { command: "bt", timeout: REPLY_TIMEOUT_MS }),
+      call(s, "winedbg_execute", { command: "info reg", timeout: REPLY_TIMEOUT_MS }),
     ]);
     const answered = outcomes.filter((result) => !isRefusal(result));
     const refused = outcomes.filter(isRefusal);
@@ -103,34 +108,34 @@ describe("concurrent tool calls", () => {
   test("a stop racing an in-flight command settles it and leaves nothing behind", async () => {
     const s = await startedSession();
     const [pending, stopped] = await Promise.all([
-      callTool(s, "winedbg_execute", { command: "hang", timeout: REPLY_TIMEOUT_MS }),
-      callTool(s, "winedbg_stop", {}),
+      call(s, "winedbg_execute", { command: "hang", timeout: REPLY_TIMEOUT_MS }),
+      call(s, "winedbg_stop", {}),
     ]);
     expect(isRefusal(pending)).toBe(true);
     expect(textOf(pending)).toMatch(/stopped manually/);
     expect(isRefusal(stopped)).toBe(false);
     expect(s.isRunning()).toBe(false);
     // Nothing the dead debugger had left to say reaches a later caller.
-    const after = await callTool(s, "winedbg_execute", { command: "bt" });
+    const after = await call(s, "winedbg_execute", { command: "bt" });
     expect(isRefusal(after)).toBe(true);
     expect(textOf(after)).toMatch(/not running/);
   });
 
   test("a command racing an abandoned reply is refused, not handed the late output", async () => {
     const s = await startedSession();
-    const abandoned = await callTool(s, "winedbg_execute", {
+    const abandoned = await call(s, "winedbg_execute", {
       command: `sleep:${SLOW_REPLY_MS}`,
       timeout: HANG_TIMEOUT_MS,
     });
     expect(textOf(abandoned)).toMatch(/timed out/);
     // The debugger still owes that prompt, so nothing new may be sent to it.
-    const raced = await callTool(s, "winedbg_execute", { command: "bt" });
+    const raced = await call(s, "winedbg_execute", { command: "bt" });
     expect(isRefusal(raced)).toBe(true);
     expect(textOf(raced)).toMatch(/has not returned to its prompt/);
     // Once the late reply has been drained, the next command is answered on its
     // own and the abandoned command's text is not spliced into it.
     await Bun.sleep(LATE_REPLY_WAIT_MS);
-    const after = await callTool(s, "winedbg_execute", { command: "cont" });
+    const after = await call(s, "winedbg_execute", { command: "cont" });
     expect(textOf(after)).toBe("ran: cont");
   });
 
@@ -139,7 +144,7 @@ describe("concurrent tool calls", () => {
     for (let round = 0; round < ROUNDS; round++) {
       const commands = Array.from({ length: CALLS_PER_ROUND }, (_, index) => `cmd${round}-${index}`);
       const results = await Promise.all(
-        commands.map((command) => callTool(s, "winedbg_execute", { command, timeout: REPLY_TIMEOUT_MS })),
+        commands.map((command) => call(s, "winedbg_execute", { command, timeout: REPLY_TIMEOUT_MS })),
       );
       for (const [index, result] of results.entries()) {
         const own = `ran: ${commands[index]}`;

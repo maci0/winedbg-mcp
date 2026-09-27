@@ -246,7 +246,7 @@ describe("optionalTimeout", () => {
       for (const [index, value] of casesFor(seed).entries()) {
         let accepted: number;
         try {
-          accepted = optionalTimeout(value);
+          accepted = optionalTimeout(value, DEFAULT_COMMAND_TIMEOUT_MS);
         } catch (error) {
           expect({ seed, index, invalidParams: isInvalidParams(error) }).toEqual({ seed, index, invalidParams: true });
           continue;
@@ -256,7 +256,7 @@ describe("optionalTimeout", () => {
         expect(Number.isInteger(accepted)).toBe(true);
         expect(accepted).toBeGreaterThan(0);
         expect(accepted).toBeLessThanOrEqual(MAX_COMMAND_TIMEOUT_MS);
-        expect(optionalTimeout(accepted)).toBe(accepted);
+        expect(optionalTimeout(accepted, DEFAULT_COMMAND_TIMEOUT_MS)).toBe(accepted);
       }
       run.push(`seed ${seed}`);
     }
@@ -264,7 +264,7 @@ describe("optionalTimeout", () => {
   });
 
   test("falls back to the default when the field is absent", () => {
-    expect(optionalTimeout(undefined)).toBe(DEFAULT_COMMAND_TIMEOUT_MS);
+    expect(optionalTimeout(undefined, DEFAULT_COMMAND_TIMEOUT_MS)).toBe(DEFAULT_COMMAND_TIMEOUT_MS);
   });
 });
 
@@ -320,7 +320,7 @@ describe("callTool", () => {
         const args = argsBag(value);
         let result: ToolResult;
         try {
-          result = await callTool(recorder.session, toolNameFor(seed, index), args);
+          result = await callTool(recorder.session, toolNameFor(seed, index), args, DEFAULT_COMMAND_TIMEOUT_MS);
         } catch (error) {
           // An unknown tool is a protocol error the client has to see. A bad
           // argument is not: it has to come back as a result, so nothing ran.
@@ -349,7 +349,7 @@ describe("callTool", () => {
           expect(sent.command).toBe(requireString(args?.["command"], "command"));
           expect(sent.command.includes("\0")).toBe(false);
           expect(LINE_BREAKS.test(sent.command)).toBe(false);
-          expect(sent.timeout).toBe(optionalTimeout(args?.["timeout"]));
+          expect(sent.timeout).toBe(optionalTimeout(args?.["timeout"], DEFAULT_COMMAND_TIMEOUT_MS));
         }
       }
       run.push(`seed ${seed}: ${cases.length} values`);
@@ -359,7 +359,9 @@ describe("callTool", () => {
 
   test("an unknown tool name is a protocol error, whatever the arguments are", async () => {
     for (const name of ["", "winedbg", "WINEDBG_START", "winedbg_start ", "winedbg_start;rm -rf /"]) {
-      await expect(callTool(recordingSession().session, name, { command: "bt" })).rejects.toBeInstanceOf(McpError);
+      await expect(
+        callTool(recordingSession().session, name, { command: "bt" }, DEFAULT_COMMAND_TIMEOUT_MS),
+      ).rejects.toBeInstanceOf(McpError);
     }
   });
 });

@@ -1,9 +1,11 @@
 import {
   DEFAULT_BINARY,
+  DEFAULT_COMMAND_TIMEOUT_MS,
   DEFAULT_LOG_LEVEL,
   DEFAULT_READY_TIMEOUT_MS,
   LOG_LEVELS,
   type LogLevel,
+  MAX_COMMAND_TIMEOUT_MS,
   MAX_READY_TIMEOUT_MS,
 } from "./constants.js";
 
@@ -14,13 +16,15 @@ import {
 // mistyped path produces.
 export const BINARY_VAR = "WINEDBG_MCP_BINARY";
 export const READY_TIMEOUT_VAR = "WINEDBG_MCP_READY_TIMEOUT_MS";
+export const COMMAND_TIMEOUT_VAR = "WINEDBG_MCP_COMMAND_TIMEOUT_MS";
 export const LOG_LEVEL_VAR = "WINEDBG_MCP_LOG_LEVEL";
-const KNOWN_VARS: readonly string[] = [BINARY_VAR, READY_TIMEOUT_VAR, LOG_LEVEL_VAR];
+const KNOWN_VARS: readonly string[] = [BINARY_VAR, READY_TIMEOUT_VAR, COMMAND_TIMEOUT_VAR, LOG_LEVEL_VAR];
 const VAR_PREFIX = "WINEDBG_MCP_";
 
 export type Config = {
   binary: string;
   readyTimeoutMs: number;
+  commandTimeoutMs: number;
   logLevel: LogLevel;
 };
 
@@ -40,14 +44,28 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
 
   return {
     binary: parseBinary(env[BINARY_VAR]),
-    readyTimeoutMs: parseReadyTimeout(env[READY_TIMEOUT_VAR]),
+    readyTimeoutMs: parseMilliseconds(
+      env[READY_TIMEOUT_VAR],
+      READY_TIMEOUT_VAR,
+      DEFAULT_READY_TIMEOUT_MS,
+      MAX_READY_TIMEOUT_MS,
+    ),
+    commandTimeoutMs: parseMilliseconds(
+      env[COMMAND_TIMEOUT_VAR],
+      COMMAND_TIMEOUT_VAR,
+      DEFAULT_COMMAND_TIMEOUT_MS,
+      MAX_COMMAND_TIMEOUT_MS,
+    ),
     logLevel: parseLogLevel(env[LOG_LEVEL_VAR]),
   };
 }
 
 /** Describe the active configuration for the startup log. No secrets pass through here. */
 export function describeConfig(config: Config): string {
-  return `${BINARY_VAR}=${config.binary} ${READY_TIMEOUT_VAR}=${config.readyTimeoutMs} ${LOG_LEVEL_VAR}=${config.logLevel}`;
+  return (
+    `${BINARY_VAR}=${config.binary} ${READY_TIMEOUT_VAR}=${config.readyTimeoutMs} ` +
+    `${COMMAND_TIMEOUT_VAR}=${config.commandTimeoutMs} ${LOG_LEVEL_VAR}=${config.logLevel}`
+  );
 }
 
 function parseLogLevel(raw: string | undefined): LogLevel {
@@ -66,27 +84,29 @@ function parseBinary(raw: string | undefined): string {
   if (raw === undefined) return DEFAULT_BINARY;
   // Set-to-empty is a deployment mistake, not a request for the default: spawn("")
   // fails with ENOENT once someone tries to start a session.
-  if (raw.trim().length === 0) {
+  const value = raw.trim();
+  if (value.length === 0) {
     throw new Error(`${BINARY_VAR} is set but empty. Unset it to use "${DEFAULT_BINARY}".`);
   }
   // A NUL cannot reach execve, so spawn() rejects the path with an ERR_INVALID_ARG_VALUE
   // from a tool call instead of naming the variable that carries it.
-  if (raw.includes("\0")) {
+  if (value.includes("\0")) {
     throw new Error(`${BINARY_VAR} contains a NUL byte, which no executable path can carry.`);
   }
-  return raw;
+  // Trimmed, like every other value here: a path whose surrounding spaces came
+  // from a YAML block or an env file would otherwise spawn a name nothing has.
+  return value;
 }
 
-function parseReadyTimeout(raw: string | undefined): number {
-  if (raw === undefined) return DEFAULT_READY_TIMEOUT_MS;
+/** One of the two waits, in milliseconds. Both take the same shape of value and refuse the same mistakes. */
+function parseMilliseconds(raw: string | undefined, name: string, fallback: number, max: number): number {
+  if (raw === undefined) return fallback;
   const trimmed = raw.trim();
   // Number() accepts "", " " and "0x10"; require plain digits so a typo is an
   // error rather than a surprising value.
   const value = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : NaN;
-  if (!Number.isFinite(value) || value <= 0 || value > MAX_READY_TIMEOUT_MS) {
-    throw new Error(
-      `${READY_TIMEOUT_VAR} must be a whole number of milliseconds between 1 and ${MAX_READY_TIMEOUT_MS}, got "${raw}"`,
-    );
+  if (!Number.isFinite(value) || value <= 0 || value > max) {
+    throw new Error(`${name} must be a whole number of milliseconds between 1 and ${max}, got "${raw}"`);
   }
   return value;
 }

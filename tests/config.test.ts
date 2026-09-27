@@ -6,25 +6,46 @@
 // plain object. process.env is never touched.
 
 import { describe, expect, test } from "bun:test";
-import { BINARY_VAR, describeConfig, LOG_LEVEL_VAR, loadConfig, READY_TIMEOUT_VAR } from "../src/config.js";
-import { DEFAULT_BINARY, DEFAULT_LOG_LEVEL, DEFAULT_READY_TIMEOUT_MS, MAX_READY_TIMEOUT_MS } from "../src/constants.js";
+import {
+  BINARY_VAR,
+  COMMAND_TIMEOUT_VAR,
+  describeConfig,
+  LOG_LEVEL_VAR,
+  loadConfig,
+  READY_TIMEOUT_VAR,
+} from "../src/config.js";
+import {
+  DEFAULT_BINARY,
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  DEFAULT_LOG_LEVEL,
+  DEFAULT_READY_TIMEOUT_MS,
+  MAX_COMMAND_TIMEOUT_MS,
+  MAX_READY_TIMEOUT_MS,
+} from "../src/constants.js";
 
 describe("loadConfig", () => {
   test("an empty environment gives the documented defaults", () => {
     expect(loadConfig({})).toEqual({
       binary: DEFAULT_BINARY,
       readyTimeoutMs: DEFAULT_READY_TIMEOUT_MS,
+      commandTimeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
       logLevel: DEFAULT_LOG_LEVEL,
     });
   });
 
-  test("all three variables override", () => {
+  test("all four variables override", () => {
     const config = loadConfig({
       [BINARY_VAR]: "/opt/wine/bin/winedbg",
       [READY_TIMEOUT_VAR]: "45000",
+      [COMMAND_TIMEOUT_VAR]: "120000",
       [LOG_LEVEL_VAR]: "debug",
     });
-    expect(config).toEqual({ binary: "/opt/wine/bin/winedbg", readyTimeoutMs: 45000, logLevel: "debug" });
+    expect(config).toEqual({
+      binary: "/opt/wine/bin/winedbg",
+      readyTimeoutMs: 45000,
+      commandTimeoutMs: 120000,
+      logLevel: "debug",
+    });
   });
 
   test("a log level is matched whatever its case or padding", () => {
@@ -78,12 +99,41 @@ describe("loadConfig", () => {
 
   test("surrounding whitespace is a typo-free formatting habit, not a value", () => {
     expect(loadConfig({ [READY_TIMEOUT_VAR]: " 45000 " }).readyTimeoutMs).toBe(45000);
+    expect(loadConfig({ [COMMAND_TIMEOUT_VAR]: " 120000 " }).commandTimeoutMs).toBe(120000);
+    // Checked trimmed, so it has to be used trimmed: a path carrying the
+    // padding spawns a name nothing on PATH has, and fails on first start.
+    expect(loadConfig({ [BINARY_VAR]: " /opt/wine/bin/winedbg " }).binary).toBe("/opt/wine/bin/winedbg");
+  });
+
+  // The command timeout bounds the same kind of wait as the ready timeout and
+  // is capped the same way, so it refuses the same shapes. A deployment that set
+  // "10s" must be told so at startup rather than have every command silently
+  // keep the 30s default.
+  test("a non-numeric command timeout is refused", () => {
+    for (const raw of ["", " ", "abc", "10s", "1e4", "0x10", "12.5", "-5"]) {
+      expect(() => loadConfig({ [COMMAND_TIMEOUT_VAR]: raw })).toThrow(new RegExp(COMMAND_TIMEOUT_VAR));
+    }
+  });
+
+  test("a command timeout outside the range is refused", () => {
+    expect(() => loadConfig({ [COMMAND_TIMEOUT_VAR]: "0" })).toThrow(new RegExp(COMMAND_TIMEOUT_VAR));
+    expect(() => loadConfig({ [COMMAND_TIMEOUT_VAR]: String(MAX_COMMAND_TIMEOUT_MS + 1) })).toThrow(
+      new RegExp(COMMAND_TIMEOUT_VAR),
+    );
+  });
+
+  test("the command timeout range ends are inside it", () => {
+    expect(loadConfig({ [COMMAND_TIMEOUT_VAR]: "1" }).commandTimeoutMs).toBe(1);
+    expect(loadConfig({ [COMMAND_TIMEOUT_VAR]: String(MAX_COMMAND_TIMEOUT_MS) }).commandTimeoutMs).toBe(
+      MAX_COMMAND_TIMEOUT_MS,
+    );
   });
 
   test("the startup line names every variable and its active value", () => {
     const line = describeConfig(loadConfig({ [BINARY_VAR]: "/opt/wine/bin/winedbg" }));
     expect(line).toContain(`${BINARY_VAR}=/opt/wine/bin/winedbg`);
     expect(line).toContain(`${READY_TIMEOUT_VAR}=${DEFAULT_READY_TIMEOUT_MS}`);
+    expect(line).toContain(`${COMMAND_TIMEOUT_VAR}=${DEFAULT_COMMAND_TIMEOUT_MS}`);
     expect(line).toContain(`${LOG_LEVEL_VAR}=${DEFAULT_LOG_LEVEL}`);
   });
 });

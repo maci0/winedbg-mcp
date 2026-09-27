@@ -1,5 +1,5 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
+import { MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
 import { LINE_BREAKS } from "./session.js";
 
 // Tool arguments arrive as untyped JSON and the SDK does not enforce the
@@ -78,8 +78,14 @@ export function requireString(value: unknown, field: string): string {
   return requireEncodable(value, field);
 }
 
-export function optionalTimeout(value: unknown): number {
-  if (value === undefined) return DEFAULT_COMMAND_TIMEOUT_MS;
+/**
+ * The `timeout` argument, or the deployment's own default when the call carries
+ * none. The default arrives from config rather than the constant, so a
+ * deployment that raised its ceiling is not overridden back by a call that simply
+ * omitted the field.
+ */
+export function optionalTimeout(value: unknown, defaultMs: number): number {
+  if (value === undefined) return defaultMs;
   // A zero, negative or non-finite timeout fires before the debugger can answer
   // and leaves the session waiting on a prompt it has already given up on. A
   // fraction is the same problem in smaller units: the stated floor is a whole

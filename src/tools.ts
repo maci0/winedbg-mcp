@@ -1,5 +1,6 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
+import { COMMAND_TIMEOUT_VAR } from "./config.js";
+import { MAX_COMMAND_TIMEOUT_MS } from "./constants.js";
 import type { WinedbgSession } from "./session.js";
 import { optionalTimeout, requireString, requireStringArray } from "./validate.js";
 
@@ -11,52 +12,59 @@ export type ToolResult = {
   isError?: true;
 };
 
-// The tool list is fixed, so it is built once instead of on every
-// tools/list request.
-export const TOOLS = [
-  {
-    name: "winedbg_start",
-    description:
-      "Start or attach winedbg. Use this before running any commands. You can optionally provide arguments like the path to a .exe to launch, or a PID to attach to.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        args: {
-          type: "array",
-          items: { type: "string" },
-          description: "Arguments to pass to winedbg (e.g. ['myapp.exe'] or ['1234'])",
+/**
+ * The advertised tool list, with the deployment's command timeout in it. It is
+ * built once at startup rather than on every tools/list request, and the timeout
+ * it names is the one a call without a `timeout` actually gets: a description
+ * saying 30000 while the deployment waits 120000 is the model passing a value the
+ * operator had already raised.
+ */
+export function describeTools(defaultCommandTimeoutMs: number) {
+  return [
+    {
+      name: "winedbg_start",
+      description:
+        "Start or attach winedbg. Use this before running any commands. You can optionally provide arguments like the path to a .exe to launch, or a PID to attach to.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          args: {
+            type: "array",
+            items: { type: "string" },
+            description: "Arguments to pass to winedbg (e.g. ['myapp.exe'] or ['1234'])",
+          },
         },
       },
     },
-  },
-  {
-    name: "winedbg_execute",
-    description:
-      "Execute one command in the active winedbg session. (e.g., 'bt', 'step', 'break main'). One command per call: multi-line input is rejected. This requires winedbg_start to have been called.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        command: {
-          type: "string",
-          description: "A single winedbg command to execute",
+    {
+      name: "winedbg_execute",
+      description:
+        "Execute one command in the active winedbg session. (e.g., 'bt', 'step', 'break main'). One command per call: multi-line input is rejected. This requires winedbg_start to have been called.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "A single winedbg command to execute",
+          },
+          timeout: {
+            type: "number",
+            description: `Optional timeout in milliseconds for the command to finish. Defaults to ${defaultCommandTimeoutMs}ms (${COMMAND_TIMEOUT_VAR}), maximum ${MAX_COMMAND_TIMEOUT_MS}ms.`,
+          },
         },
-        timeout: {
-          type: "number",
-          description: `Optional timeout in milliseconds for the command to finish. Defaults to ${DEFAULT_COMMAND_TIMEOUT_MS}ms, maximum ${MAX_COMMAND_TIMEOUT_MS}ms.`,
-        },
+        required: ["command"],
       },
-      required: ["command"],
     },
-  },
-  {
-    name: "winedbg_stop",
-    description: "Stop the active winedbg session.",
-    inputSchema: {
-      type: "object",
-      properties: {},
+    {
+      name: "winedbg_stop",
+      description: "Stop the active winedbg session.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
     },
-  },
-] as const;
+  ] as const;
+}
 
 function text(text: string): ToolResult {
   return { content: [{ type: "text", text }] };
@@ -72,6 +80,7 @@ export async function callTool(
   session: ToolSession,
   name: string,
   args: Record<string, unknown> | undefined,
+  defaultCommandTimeoutMs: number,
 ): Promise<ToolResult> {
   try {
     switch (name) {
@@ -83,7 +92,7 @@ export async function callTool(
 
       case "winedbg_execute": {
         const command = requireString(args?.["command"], "command");
-        const timeout = optionalTimeout(args?.["timeout"]);
+        const timeout = optionalTimeout(args?.["timeout"], defaultCommandTimeoutMs);
         const output = await session.executeCommand(command, timeout);
         return text(output || "(Command executed successfully, no output)");
       }
