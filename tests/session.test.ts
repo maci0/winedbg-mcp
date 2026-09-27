@@ -175,18 +175,26 @@ describe("executeCommand", () => {
     expect(await s.executeCommand("bt")).toBe("ran: bt");
   });
 
-  test("keeps a reply intact when it arrives in many pieces past the buffer cap", async () => {
-    const s = await startedSession();
-    // Each piece is its own read, so the reply is searched for a prompt hundreds
-    // of times over a buffer that stays at its cap throughout.
-    const out = await s.executeCommand("dribble:" + OVERFLOW_CHARS);
-    // What is left is the dropped-count notice and the tail, with no prompt and
-    // no other command's output spliced into it.
-    expect(out).toMatch(/^\[\d+ characters of earlier output dropped: buffer limit\]\nd+$/);
-    expect(out.length).toBeLessThan(OVERFLOW_CHARS);
-    // The prompt that ended the reply was consumed, not left for the next one.
-    expect(await s.executeCommand("bt")).toBe("ran: bt");
-  });
+  // The fixture dribbles 2MB in 8192-byte pieces, so this is 256 child writes and
+  // 256 parent reads of a buffer sitting at its cap. It takes seconds on a quiet
+  // machine and overruns the 5s default under a parallel run, so the budget is
+  // set for the process traffic rather than for the assertion.
+  test(
+    "keeps a reply intact when it arrives in many pieces past the buffer cap",
+    async () => {
+      const s = await startedSession();
+      // Each piece is its own read, so the reply is searched for a prompt hundreds
+      // of times over a buffer that stays at its cap throughout.
+      const out = await s.executeCommand("dribble:" + OVERFLOW_CHARS);
+      // What is left is the dropped-count notice and the tail, with no prompt and
+      // no other command's output spliced into it.
+      expect(out).toMatch(/^\[\d+ characters of earlier output dropped: buffer limit\]\nd+$/);
+      expect(out.length).toBeLessThan(OVERFLOW_CHARS);
+      // The prompt that ended the reply was consumed, not left for the next one.
+      expect(await s.executeCommand("bt")).toBe("ran: bt");
+    },
+    20000
+  );
 
   test("rejects the in-flight command when the debugger exits", async () => {
     const s = await startedSession();

@@ -45,6 +45,11 @@ function parseBinary(raw: string | undefined): string {
   if (raw.trim().length === 0) {
     throw new Error(`${BINARY_VAR} is set but empty. Unset it to use "${DEFAULT_BINARY}".`);
   }
+  // A NUL cannot reach execve, so spawn() rejects the path with an ERR_INVALID_ARG_VALUE
+  // from a tool call instead of naming the variable that carries it.
+  if (raw.includes("\0")) {
+    throw new Error(`${BINARY_VAR} contains a NUL byte, which no executable path can carry.`);
+  }
   return raw;
 }
 

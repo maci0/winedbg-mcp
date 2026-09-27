@@ -38,6 +38,10 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ [BINARY_VAR]: "   " })).toThrow(/empty/);
   });
 
+  test("a binary path no executable can carry is refused", () => {
+    expect(() => loadConfig({ [BINARY_VAR]: "/opt/wine/bin/wine\0dbg" })).toThrow(/NUL/);
+  });
+
   test("a non-numeric ready timeout is refused", () => {
     for (const raw of ["", " ", "abc", "10s", "1e4", "0x10", "12.5", "-5"]) {
       expect(() => loadConfig({ [READY_TIMEOUT_VAR]: raw })).toThrow(new RegExp(READY_TIMEOUT_VAR));

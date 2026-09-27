@@ -3,15 +3,16 @@
 Last reviewed: 2026-09-27
 Owner: unset. No security owner is recorded for this repository.
 Status: design-time. The summary and sections 2 to 6 are read off the README,
-not checked against source, because this repository contains no source.
+not checked against the source that has since landed, so this model predates
+the implementation.
 
 ## Scope and verification status
 
-This repository holds documentation only: `README.md` and this file. There is no
-`src/`, no `package.json`, no `tests/`, no CI workflow and no lockfile
-(`README.md:5-11` states this, and it is true of the tree). There is therefore
-no executable surface here to model, and no entry point, boundary or mitigation
-in this document can be re-verified against code.
+This tree now carries the server: `src/`, `tests/`, `package.json`,
+`tsconfig.json` and `bun.lock`. This model has not been re-derived against them,
+so no entry point, boundary or mitigation below has been re-verified against
+code, and the [design] and [verified] split below still reflects the state of
+the tree this model was written for.
 
 The server this model describes is specified in prose in `README.md`. Every
 claim below is therefore split by how it is supported:
@@ -89,7 +90,7 @@ compare against `tools/list` when the code lands:
 | `winedbg_execute` `timeout` | Tool argument | `README.md:86` | Bounded, 1 to 600000 ms |
 | `winedbg_stop` | Tool argument, none | `README.md:87` | None needed; what it waits for before returning is unstated |
 | Error text returned as tool text | Response carrying child and OS failure detail | `README.md:140-149` | None; the message is passed through as produced |
-| `WINEDBG_MCP_BINARY` | Environment, names the executable | `README.md:67-70` | Non-empty, read once; an unknown `WINEDBG_MCP_*` name aborts startup (`README.md:72-76`) |
+| `WINEDBG_MCP_BINARY` | Environment, names the executable | `README.md:67-70` | Non-empty, NUL-free, read once; an unknown `WINEDBG_MCP_*` name aborts startup (`README.md:72-76`) |
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | Environment | `README.md:67-70` | Whole milliseconds, 1 to 600000 |
 | The rest of the process environment | Inherited by winedbg and by whatever winedbg starts | `README.md:60-65` | None |
 | The server's working directory | Inherited by the child; resolves a relative binary and a relative `args[0]` | `README.md:60-65` | None |
@@ -187,12 +188,12 @@ child. A value the server cannot use aborts startup with the variable named
 **B5: build to runtime.** The README's build step emits `build/index.js` and
 the client configuration points at that path (`README.md:28-34`,
 `README.md:40-53`). Whether that artifact matches the sources is a
-build-pipeline question this repository does not answer: there is no
-`package.json`, no `tsconfig.json`, no lockfile, no CI workflow and no stated
-dependency version. Two consequences follow, and both are unverifiable rather
-than confirmed: nothing here verifies that the emitted artifact matches tested
-source, and a consumer of a published binary would resolve dependencies from
-whatever declared ranges the package carries, with no lockfile in reach.
+build-pipeline question this repository does not answer: there is no CI
+workflow and no stated dependency version beyond the ranges in `package.json`.
+Two consequences follow, and both are unverifiable rather than confirmed:
+nothing here verifies that the emitted artifact matches tested source, and a
+consumer of a published binary would resolve dependencies from those declared
+ranges rather than from the `bun.lock` a local `bun install` produces.
 
 The artifact also has more than one documented way to run, a second B5
 question that also reaches B2 and B3. The client configuration launches

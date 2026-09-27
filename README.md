@@ -4,11 +4,11 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 
 ## Status
 
-This repository currently holds documentation only: this README and
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). There is no `package.json`, no
-`src/`, and no `tests/`, so the commands and file paths below describe the
-intended layout of the server and cannot be run from this tree. Nothing here
-has been executed against a running `winedbg`.
+The server is implemented and tested. `src/` holds the session, the environment
+parsing and the tool-argument validation; `tests/` drives them against a stand-in
+that speaks the same `Wine-dbg>` prompt protocol, so the suite needs no Wine. No
+test here has been run against a real `winedbg`: the debugger is the one thing
+the fixtures replace.
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ rest of the attack surface.
 
 | Variable | Default | Valid values |
 | --- | --- | --- |
-| `WINEDBG_MCP_BINARY` | `winedbg` (found on `PATH`) | A non-empty command name or path |
+| `WINEDBG_MCP_BINARY` | `winedbg` (found on `PATH`) | A non-empty command name or path, with no NUL byte in it |
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | `10000` | Whole milliseconds, 1 to 600000. How long `winedbg_start` waits for the first prompt. Raise it for a cold wineprefix, which takes far longer than a warm one |
 
 A value the server cannot use stops it at startup with the variable named,
@@ -122,18 +122,18 @@ starts mid-sequence, and the reply reports how many code points went missing.
 
 ## Tests
 
-No test suite ships in this tree, so there is nothing to run yet. Once the
-server lands, the commands are:
+`bun run typecheck` and `bun test` are the gate for this tree. The suite drives
+`WinedbgSession` against `tests/fake-winedbg.js`, a stand-in speaking the same
+`Wine-dbg>` prompt protocol, so it runs without Wine, and it covers the
+tool-argument validation and the environment parsing described above:
 
 ```bash
 bun run typecheck
 bun test
 ```
 
-The suite is meant to drive `WinedbgSession` against a stand-in that speaks the
-same `Wine-dbg>` prompt protocol, so it can run without Wine installed, and to
-cover the tool-argument validation and the environment parsing described
-above.
+Every session test spawns a real child and drives its stdio, so a failure is a
+real spawn, stream or lifecycle failure rather than a mock disagreeing.
 
 ## Troubleshooting
 
@@ -146,7 +146,7 @@ produced, so the text names the state to fix:
 | `winedbg is already running. Please stop it first.` | `winedbg_start` was called twice; call `winedbg_stop` first |
 | `Another command is already in progress: ...` | One command per call, and the previous one has not answered yet. The message names that command and tells the caller to wait for its reply |
 | `Configuration error: ...` on stderr at startup | An environment value the server cannot use, named in the message. The server exits with status 1 instead of starting on defaults |
-| `Timeout waiting for winedbg to start (Nms)` | No prompt within `WINEDBG_MCP_READY_TIMEOUT_MS`; the child is killed. Raise the variable for a cold wineprefix |
+| `Timeout waiting for winedbg to print its first prompt (Nms)` | No prompt within `WINEDBG_MCP_READY_TIMEOUT_MS`; the child is killed. Raise the variable for a cold wineprefix |
 
 ## License
 
