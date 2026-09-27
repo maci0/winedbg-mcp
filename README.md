@@ -4,7 +4,7 @@ An MCP server for interacting with `winedbg` (the Wine debugger). It wraps the i
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/), the package manager, build tool and test runner here (`packageManager` in `package.json` pins the version CI uses)
+- [Bun](https://bun.sh/), the package manager, build tool and test runner here (`packageManager` in `package.json` pins the version)
 - [Wine](https://www.winehq.org/), which includes `winedbg`
 
 Node.js 18 or higher is only needed if you run the built `build/index.js`
@@ -112,8 +112,18 @@ speaks the same `Wine-dbg>` prompt protocol, so it runs without Wine installed, 
 checks the tool-argument validation in `src/validate.ts` and the environment
 parsing in `src/config.ts`.
 
-CI (`.github/workflows/ci.yml`) runs both on every pull request and on every
-push to `main`.
+## Troubleshooting
+
+Every tool failure comes back as `Error: <message>` with the message the code
+produced, so the text names the state to fix:
+
+| Message | Cause |
+| --- | --- |
+| `winedbg is not running. Please start it first.` | A command ran with no live session, including one whose `winedbg` exited |
+| `winedbg is already running. Please stop it first.` | `winedbg_start` was called twice; call `winedbg_stop` first |
+| `Another command is already in progress.` | One command per call, and the previous one has not answered yet |
+| `Configuration error: ...` on stderr at startup | An environment value the server cannot use, named in the message. The server exits with status 1 instead of starting on defaults |
+| `Timeout waiting for winedbg to start (Nms)` | No prompt within `WINEDBG_MCP_READY_TIMEOUT_MS`; the child is killed. Raise the variable for a cold wineprefix |
 
 ## License
 
