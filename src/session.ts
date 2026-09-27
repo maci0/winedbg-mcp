@@ -274,20 +274,17 @@ export class WinedbgSession {
     } catch (error) {
       // spawn() throws before a child exists when an argument cannot be carried,
       // and its message names neither the variable nor the argument. Nothing is
-      // running, so refusing the next start is not a concern here. Rejected
-      // rather than thrown: every other start failure arrives that way, and a
-      // caller with only a .catch() on the result would miss this.
+      // running, so refusing the next start is not a concern here. launch() is
+      // async, so throwing here rejects the promise start() returned, the same
+      // way every other start failure arrives.
+      const reason = describeError(error);
       this.log.error("winedbg could not be spawned", {
         ...callFields(),
         binary: this.binary,
         args: JSON.stringify(args),
-        error: error instanceof Error ? error.message : String(error),
+        error: reason,
       });
-      return Promise.reject(
-        new Error(
-          `Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-      );
+      throw new Error(`Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${reason}`);
     }
     this.process = child;
     const startedAt = this.runtime.clock.now();
@@ -308,8 +305,8 @@ export class WinedbgSession {
       // event carried it: the child exiting, the child erroring, or one of its
       // output pipes failing.
       const fail = (error: Error) => {
-        const failStart = !this.isReady && this.initReject !== null;
-        if (failStart) this.initReject = null;
+        const initReject = this.isReady ? null : this.initReject;
+        this.initReject = null;
         this.clearReadyTimer();
         // A child that never got a pid never ran, so it is not a session:
         // leaving it set would refuse every later start with "already running"
@@ -320,11 +317,7 @@ export class WinedbgSession {
           this.isReady = false;
           this.awaitingAbandonedPrompt = false;
         }
-        if (failStart) reject(error);
-        if (this.currentPromise) {
-          this.currentPromise.reject(error);
-          this.releaseCurrent();
-        }
+        this.failChild(error, initReject);
       };
 
       this.initReject = reject;

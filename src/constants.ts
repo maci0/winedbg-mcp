@@ -1,6 +1,14 @@
 // Defaults and limits shared by the config, validation, tool and session
 // layers. They live here so no layer has to import another one to name a
-// number they both use.
+// value they both use.
+
+// The debugger answers one line with one prompt, so a command is one line only
+// if it is one line under every reader: a stream reader splits on \n, \r and
+// vertical tab, and a text decoder that honours the Unicode line breaks splits
+// on NEL (U+0085), U+2028 and U+2029 too. NUL is not a line break but truncates
+// the line for most C readers, leaving the reply stream one prompt out of step
+// the same way a second line would.
+export const LINE_BREAKS = /[\n\r\v\f\0\u0085\u2028\u2029]/;
 
 export const DEFAULT_BINARY = "winedbg";
 // A cold wineprefix takes longer to answer than a warm one; config.ts lets a

@@ -1,3 +1,11 @@
+import {
+  DEFAULT_BINARY,
+  DEFAULT_LOG_LEVEL,
+  DEFAULT_READY_TIMEOUT_MS,
+  LOG_LEVELS,
+  MAX_READY_TIMEOUT_MS,
+} from "./constants.js";
+import { TERMINATION_WAIT_MS } from "./session.js";
 import { SERVER_VERSION } from "./version.js";
 
 const INVOCATION = "winedbg-mcp [OPTION]";
@@ -18,7 +26,7 @@ Options:
 With no option the server starts and waits for a client on stdin.
 
 Environment:
-  WINEDBG_MCP_BINARY             winedbg command or path. Default: winedbg
+  WINEDBG_MCP_BINARY             winedbg command or path. Default: ${DEFAULT_BINARY}
   WINEDBG_MCP_READY_TIMEOUT_MS  Milliseconds to wait for the first winedbg
                                 prompt, 1 to 600000. Default: 10000
   WINEDBG_MCP_COMMAND_TIMEOUT_MS
