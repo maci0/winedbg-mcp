@@ -13,7 +13,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { BINARY_VAR } from "../src/config.js";
 import { DEFAULT_READY_TIMEOUT_MS } from "../src/constants.js";
-import { createLogger } from "../src/logger.js";
+import { createLogger, runWithCallId } from "../src/logger.js";
 import { WinedbgSession } from "../src/session.js";
 
 // fileURLToPath, not .pathname: a file: URL is percent-encoded, and on Windows
@@ -472,6 +472,28 @@ describe("logging", () => {
         .slice(before)
         .map((r) => r["message"]),
     ).not.toContain("winedbg exited");
+  });
+
+  test("a session line names the tool call that reached it", async () => {
+    // The join is the point: a command that timed out is one line, and the tool
+    // call that asked for it is another, and nothing else on either line ties
+    // them together.
+    const { session: s, records } = loggedSession();
+    await runWithCallId("call-9", () => s.start([FAKE]));
+    await runWithCallId("call-10", async () => {
+      await expect(s.executeCommand("hang", HANG_TIMEOUT_MS)).rejects.toThrow(/timed out/);
+    });
+    expect(record(records(), "winedbg spawned, waiting for its first prompt")["callId"]).toBe("call-9");
+    expect(record(records(), "winedbg is at its first prompt")["callId"]).toBe("call-9");
+    expect(record(records(), "winedbg command timed out")["callId"]).toBe("call-10");
+  });
+
+  test("a session used outside a tool call names none", async () => {
+    // The tests and the shutdown path drive the session directly, and a callId
+    // from an earlier run would be a lie.
+    const { session: s, records } = loggedSession();
+    await s.start([FAKE]);
+    expect(records().every((r) => !("callId" in r))).toBe(true);
   });
 });
 

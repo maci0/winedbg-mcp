@@ -29,6 +29,7 @@ Source layout, one concern per module:
 | `src/tools.ts` | the MCP tool list and the call dispatch |
 | `src/validate.ts` | validation of untyped tool arguments |
 | `src/session.ts` | the winedbg child process and its prompt protocol |
+| `src/fatal.ts` | the crash record, for a failure the server cannot log itself |
 | `src/runtime.ts` | the process and clock the session reaches the outside world through |
 | `src/logger.ts` | the stderr log line format and the level filter |
 | `src/config.ts` | reading and validating the environment |
@@ -127,20 +128,30 @@ The fields an operator pivots on:
 
 | Field | Where | Answers |
 | --- | --- | --- |
-| `callId` | one tool call | ties the start, the outcome and the duration of a call together, e.g. `call-7` |
+| `callId` | one tool call, and every session line that call produced | ties the start, the outcome, the duration and the debugger lines of a call together, e.g. `call-7` |
 | `tool` | one tool call | which of the three tools ran |
 | `durationMs` | tool call result | how long the call took, success or failure |
 | `error` | a failure | why: the same text the client got back as the tool result |
 | `readyMs`, `lifetimeMs`, `pid` | session start and exit | how long the debugger took to answer, and how it ended |
 | `command`, `timeoutMs` | a command that timed out | which command, and the bound it hit |
 | `droppedChars` | a reply past the 1M buffer limit | that the reply was shortened, and by how much |
+| `kind`, `stack`, `version` | a crash | an uncaught exception or a rejection nobody awaited, with the build it came from |
+
+One tool call is one path through the log: a `winedbg_start` that hangs shows
+`tool call started` and the `winedbg spawned, waiting for its first prompt` line
+under one `callId`, then either the first prompt with its `readyMs` or the ready
+timeout, then the tool call's own outcome with its `durationMs`. A `callId` is
+absent from a line that belongs to the process rather than to a call: startup,
+shutdown and a signal are the server's own.
 
 A session that ends because the debugger died is logged at `error`; one that
 ends because `winedbg_stop`, `SIGTERM` or the client hanging up asked for it is
 logged at `info`, so a quiet log holds no shutdown noise. `debug` adds the
-command text of each `winedbg_execute`. There are no metrics, traces or alerts
-to configure: the server is one process per MCP client with nothing to scrape,
-so the log is the whole surface.
+command text of each `winedbg_execute`. A crash is recorded before the process
+leaves, on the same one-object-per-line surface, so it carries a level, a
+timestamp and the version rather than node's plain-text output. There are no
+metrics, traces or alerts to configure: the server is one process per MCP client
+with nothing to scrape, so the log is the whole surface.
 
 ## Tools Available
 
@@ -162,7 +173,9 @@ Each line is a JSON object, so a control character in a command is escaped
 rather than able to break the one-line parse, and a recorded field is at most as
 long as the argument limits above (4096 characters). Nothing bounds how many
 records a session writes, and no reply is logged, so the log is a record of what
-was asked for and not of what came back.
+was asked for and not of what came back. A debugger line records the tool call
+that reached it, so what a session did is read under the call that asked for it
+rather than by matching text by hand.
 
 ### Command framing
 
@@ -309,7 +322,7 @@ Formatting is Biome's, and the line width is 120 columns, the width the tree was
 already written to. `src/index.ts` keeps one scoped `noConsole` suppression:
 stdout carries the MCP JSON-RPC stream, so the configuration failure has to go to
 stderr. Everything else it writes goes through the logger, which writes to
-stderr by construction (`src/logger.ts:55-58`).
+stderr by construction (`src/logger.ts:68-71`).
 
 ## Troubleshooting
 

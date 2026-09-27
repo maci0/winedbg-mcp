@@ -29,6 +29,17 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
   the test fixture a CRLF shebang that fails to exec.
 - A statement of the supported platforms (Linux and macOS) in the README.
   `winedbg_stop` needs POSIX process groups and the README claimed no OS.
+- A `callId` on every session line, not only on the tool call lines. The MCP SDK
+  hands a handler its params and not the JSON-RPC envelope, so a per-process
+  counter identifies the call, and `runWithCallId` carries it into everything
+  the call reaches asynchronously: a spawn, the ready timer, a command that timed
+  out, a close. A command that timed out is now found under the call that asked
+  for it. Lines that belong to the process, not to a call, carry no id.
+- A crash record. An uncaught exception or a rejection nobody awaited reached the
+  operator as node's plain text, with no level, no timestamp and no version; it
+  is now one line on the same surface, carrying the error, the stack and the
+  version, written before the process leaves so `winedbg` and its debuggee are
+  still signalled.
 
 ### Changed
 
@@ -75,6 +86,10 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
 - The command-line tests inherit a test deadline above their own spawn
   timeout. On a loaded machine a child that had not finished starting was
   abandoned and reported as exit code 143 rather than as the hang it was.
+- A client that closed stderr no longer takes the server down. Every log line is
+  a write to stderr, a write to a closed one fails with EPIPE, and an error on a
+  stream nothing listened for became an uncaught exception mid-tool-call. The
+  write is dropped instead, the way a command pipe error already was.
 
 ## [1.0.0] - 2026-09-27
 

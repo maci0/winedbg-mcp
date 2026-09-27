@@ -5,7 +5,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { parseCliArgs, UsageError } from "./cli.js";
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
-import { createLogger } from "./logger.js";
+import { installFatalHandlers } from "./fatal.js";
+import { createLogger, runWithCallId } from "./logger.js";
 import { WinedbgSession } from "./session.js";
 import { callTool, TOOLS, type ToolResult } from "./tools.js";
 import { SERVER_VERSION } from "./version.js";
@@ -56,6 +57,13 @@ const server = new Server(
 const log = createLogger(config.logLevel, (line) => {
   process.stderr.write(`${line}\n`);
 });
+// A client that closes stderr leaves every write to it failing with EPIPE, and
+// an error on a stream nothing listens for takes the process down mid-call.
+// The log is the only channel this server has, so there is nowhere to report
+// it: drop the line and keep serving, the way a command pipe error is dropped
+// in src/runtime.ts.
+process.stderr.on("error", () => {});
+installFatalHandlers(log);
 const session = new WinedbgSession(config.binary, config.readyTimeoutMs, undefined, log);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -66,40 +74,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
 // tool call its params and not the JSON-RPC envelope, so the client's request id
 // never reaches this process. A per-process counter stands in for it: one number
 // that ties the start, the failure and the duration of one call together in the
-// log.
+// log, and, through runWithCallId, the session lines that call produced, so a
+// command that timed out is found under the call that asked for it.
 let callCounter = 0;
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const callId = `call-${++callCounter}`;
-  const tool = request.params.name;
-  const startedAt = Date.now();
-  log.info("tool call started", { callId, tool });
-  let result: ToolResult;
-  try {
-    result = await callTool(session, tool, request.params.arguments);
-  } catch (error) {
-    // The one failure that is not an error result: an unknown tool name, which
-    // is a protocol error the client has to see. It still has to leave a line
-    // here, or a call that starts in the log and never ends looks like a hang.
-    log.error("tool call rejected", {
-      callId,
-      tool,
-      durationMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  }
-  const durationMs = Date.now() - startedAt;
-  // A failed tool call still answered the client, so it is a call that completed
-  // with an error, not a missing one: the outcome rides on the same line as the
-  // duration, which is what answers "did it succeed and how long did it take".
-  if (result.isError) {
-    const text = result.content[0]?.text ?? "";
-    log.warn("tool call failed", { callId, tool, durationMs, error: text });
-  } else {
-    log.info("tool call finished", { callId, tool, durationMs });
-  }
-  return result;
+  return runWithCallId(callId, async () => {
+    const tool = request.params.name;
+    const startedAt = Date.now();
+    log.info("tool call started", { callId, tool });
+    let result: ToolResult;
+    try {
+      result = await callTool(session, tool, request.params.arguments);
+    } catch (error) {
+      // The one failure that is not an error result: an unknown tool name, which
+      // is a protocol error the client has to see. It still has to leave a line
+      // here, or a call that starts in the log and never ends looks like a hang.
+      log.error("tool call rejected", {
+        callId,
+        tool,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    const durationMs = Date.now() - startedAt;
+    // A failed tool call still answered the client, so it is a call that completed
+    // with an error, not a missing one: the outcome rides on the same line as the
+    // duration, which is what answers "did it succeed and how long did it take".
+    if (result.isError) {
+      const text = result.content[0]?.text ?? "";
+      log.warn("tool call failed", { callId, tool, durationMs, error: text });
+    } else {
+      log.info("tool call finished", { callId, tool, durationMs });
+    }
+    return result;
+  });
 });
 
 // winedbg is a child of this process, so nothing else reaps it when the client
