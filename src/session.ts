@@ -29,11 +29,28 @@ const TERMINATION_WAIT_MS = KILL_GRACE_MS * 2;
 // the same way a second line would.
 export const LINE_BREAKS = /[\n\r\v\f\0\u0085\u2028\u2029]/;
 
-/** Code points, which is what a reader counts, not the UTF-16 units String#length reports. */
-function countCodePoints(text: string): number {
+/**
+ * Code points in `text[0, end)`, which is what a reader counts, not the UTF-16
+ * units String#length reports. Counted over a range rather than over a
+ * substring: the dropped prefix runs to a quarter of a megabyte on every trim,
+ * and copying it only to walk it costs more than the walk.
+ */
+function countCodePoints(text: string, end: number): number {
   let count = 0;
-  for (const _ of text) count++;
+  for (let i = 0; i < end; i++) {
+    // A high surrogate and the low one after it are one character, two units.
+    if (i + 1 < end && isHighSurrogate(text.charCodeAt(i)) && isLowSurrogate(text.charCodeAt(i + 1))) i++;
+    count++;
+  }
   return count;
+}
+
+function isHighSurrogate(unit: number): boolean {
+  return unit >= 0xd800 && unit <= 0xdbff;
+}
+
+function isLowSurrogate(unit: number): boolean {
+  return unit >= 0xdc00 && unit <= 0xdfff;
 }
 
 function describeExit(code: number | null, signal: NodeJS.Signals | null): string {
@@ -319,7 +336,14 @@ export class WinedbgSession {
       });
       await Promise.race([closed, expired]);
       if (timer) clearTimeout(timer);
-      if (this.terminating.size >= children.length) return;
+      if (this.terminating.size >= children.length) {
+        // The wait expired with nothing reaped. An entry only exists to hold the
+        // next start off, and a child that outlived SIGKILL is not going to
+        // report a close: left in place it would grow the set by one per stop,
+        // never released, and make every later wait cover all of them at once.
+        for (const child of children) this.terminating.delete(child);
+        return;
+      }
     }
   }
 
@@ -365,19 +389,22 @@ export class WinedbgSession {
     // the notice names them in.
     if (this.buffer.length <= MAX_BUFFER_CHARS) return;
     const cut = this.charCountToCodePointBoundary(this.buffer.length - BUFFER_RETAIN_CHARS);
-    this.droppedChars += countCodePoints(this.buffer.substring(0, cut));
+    this.droppedChars += countCodePoints(this.buffer, cut);
     this.dropBufferPrefix(cut);
   }
 
   /**
-   * Move a cut back off the low half of a surrogate pair. Characters outside the
-   * BMP take two code units, and a cut between the halves leaves a lone surrogate
-   * that no JSON encoder or terminal will render as the character it was.
+   * Move a cut off the middle of a surrogate pair, whichever half it lands on.
+   * Characters outside the BMP take two code units, and a cut between the halves
+   * leaves a lone surrogate that no JSON encoder or terminal will render as the
+   * character it was. A cut on a low half moves back; one just past a high half
+   * moves forward, since dropping the low half is what unpaired it.
    */
   private charCountToCodePointBoundary(count: number) {
     if (count <= 0 || count >= this.buffer.length) return count;
-    const unit = this.buffer.charCodeAt(count);
-    return unit >= 0xdc00 && unit <= 0xdfff ? count - 1 : count;
+    if (isLowSurrogate(this.buffer.charCodeAt(count))) return count - 1;
+    if (count + 1 < this.buffer.length && isHighSurrogate(this.buffer.charCodeAt(count - 1))) return count + 1;
+    return count;
   }
 
   private clearBuffer() {
