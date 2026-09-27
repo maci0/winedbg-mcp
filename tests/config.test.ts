@@ -1,0 +1,82 @@
+// Goal: pin the environment parsing, since a wrong value here is the difference
+// between a server that refuses to start with the variable named and one that
+// runs on defaults nobody asked for.
+//
+// Method: loadConfig takes the environment as an argument, so every case is a
+// plain object. process.env is never touched.
+
+import { describe, expect, test } from "bun:test";
+import { BINARY_VAR, READY_TIMEOUT_VAR, describeConfig, loadConfig } from "../src/config.js";
+import { DEFAULT_BINARY, DEFAULT_READY_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "../src/session.js";
+
+describe("loadConfig", () => {
+  test("an empty environment gives the documented defaults", () => {
+    expect(loadConfig({})).toEqual({
+      binary: DEFAULT_BINARY,
+      readyTimeoutMs: DEFAULT_READY_TIMEOUT_MS,
+    });
+  });
+
+  test("both variables override", () => {
+    const config = loadConfig({
+      [BINARY_VAR]: "/opt/wine/bin/winedbg",
+      [READY_TIMEOUT_VAR]: "45000",
+    });
+    expect(config).toEqual({ binary: "/opt/wine/bin/winedbg", readyTimeoutMs: 45000 });
+  });
+
+  test("unrelated variables are left alone", () => {
+    expect(loadConfig({ PATH: "/usr/bin", WINEPREFIX: "/home/u/.wine" }).binary).toBe(DEFAULT_BINARY);
+  });
+
+  test("a misspelled WINEDBG_MCP_ variable is refused, not ignored", () => {
+    const load = () => loadConfig({ WINEDBG_MCP_BINRY: "winedbg" });
+    expect(load).toThrow(/WINEDBG_MCP_BINRY/);
+    // The message has to name the variables that are understood.
+    expect(load).toThrow(new RegExp(BINARY_VAR));
+  });
+
+  test("an unknown variable is refused even when the known ones are valid", () => {
+    expect(() =>
+      loadConfig({ [BINARY_VAR]: "/opt/wine/bin/winedbg", WINEDBG_MCP_TIMEOUT: "5000" })
+    ).toThrow(/WINEDBG_MCP_TIMEOUT/);
+  });
+
+  test("set-to-empty is an error, not the default", () => {
+    expect(() => loadConfig({ [BINARY_VAR]: "" })).toThrow(/empty/);
+    expect(() => loadConfig({ [BINARY_VAR]: "   " })).toThrow(/empty/);
+  });
+
+  test("a non-numeric ready timeout is refused", () => {
+    for (const raw of ["", " ", "abc", "10s", "1e4", "0x10", "12.5", "-5"]) {
+      expect(() => loadConfig({ [READY_TIMEOUT_VAR]: raw })).toThrow(new RegExp(READY_TIMEOUT_VAR));
+    }
+  });
+
+  test("surrounding whitespace in a numeric timeout is not the point", () => {
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: " 45000 " }).readyTimeoutMs).toBe(45000);
+  });
+
+  test("a ready timeout outside the range is refused", () => {
+    expect(() => loadConfig({ [READY_TIMEOUT_VAR]: "0" })).toThrow(new RegExp(READY_TIMEOUT_VAR));
+    expect(() => loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_COMMAND_TIMEOUT_MS + 1) })).toThrow(
+      new RegExp(READY_TIMEOUT_VAR)
+    );
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_COMMAND_TIMEOUT_MS) }).readyTimeoutMs).toBe(
+      MAX_COMMAND_TIMEOUT_MS
+    );
+  });
+
+  test("both ends of the range are accepted", () => {
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: "1" }).readyTimeoutMs).toBe(1);
+    expect(loadConfig({ [READY_TIMEOUT_VAR]: String(MAX_COMMAND_TIMEOUT_MS) }).readyTimeoutMs).toBe(
+      MAX_COMMAND_TIMEOUT_MS
+    );
+  });
+
+  test("the startup line names both variables and their active values", () => {
+    const line = describeConfig(loadConfig({ [BINARY_VAR]: "/opt/wine/bin/winedbg" }));
+    expect(line).toContain(`${BINARY_VAR}=/opt/wine/bin/winedbg`);
+    expect(line).toContain(`${READY_TIMEOUT_VAR}=${DEFAULT_READY_TIMEOUT_MS}`);
+  });
+});
