@@ -48,13 +48,13 @@ this repository.
 | 3 | A debuggee's stdout is indistinguishable from the debugger's (`README.md:91-93`). A program under debug that prints `Wine-dbg>` can end a reply at a point of its choosing, hiding whatever output follows. | B3 | Wrong debugging conclusions; an operator is told the program's output stopped where the attacker chose | Unmitigated |
 | 4 | Debuggee output reaches the caller as tool text, so program-controlled bytes reach the LLM driving the server. It is decoded as UTF-8 first (`README.md:107-113`), so a program printing non-UTF-8 bytes is returned as U+FFFD, which mangles the output without changing its authority. | B1, B3 | Prompt injection into the agent: the debugged program can steer the tool-using model. A target that prints in a legacy code page has its output silently rewritten, so a mangled reply can be read as a correct one | Unmitigated |
 | 5 | The stdio transport has no authentication. Any process that inherits or reaches the fds is a full client. | B1 | Same as #1, reached through a weaker path | Unmitigated; the only control is how the client is launched |
-| 6 | If `stop()` clears the session before the process group is gone, a client alternating `winedbg_start` and `winedbg_stop` leaves a live debugger per cycle and can accumulate detached process groups faster than they die. | B1, B2 | Resource exhaustion: orphaned debuggees holding memory, CPU and the user's file access with no owner | Unresolved. The README does not say whether `stop()` waits for the child to exit; check the code |
+| 6 | If `stop()` clears the session before the process group is gone, a client alternating `winedbg_start` and `winedbg_stop` leaves a live debugger per cycle and can accumulate detached process groups faster than they die. | B1, B2 | Resource exhaustion: orphaned debuggees holding memory, CPU and the user's file access with no owner | Partial: a start that never reaches its prompt has its child killed (`README.md:149`), so that path does not orphan. `stop()` is still unstated; check the code |
 | 7 | A timed-out command leaves the session refusing commands until `winedbg_stop` destroys the debugging state (`README.md:101-105`). | B1 | Denial of service against the session, loss of the target's state | Partial: `winedbg_stop` and restart recover it |
 | 8 | A reply is buffered up to 1M characters and returned whole, roughly 250k tokens of program-controlled text in one tool result (`README.md:107-113`). | B1, B3 | Cost and context exhaustion in the client; the model reads attacker-chosen text at length | Bounded per reply, unbounded in count |
 | 9 | Whether the child is given a process group of its own is not stated. If it is, the debugger and its debuggee survive a SIGKILL of the server. | B2, B4 | Orphaned debuggee keeps running with no owner | Unanchored; check the spawn options in the code |
-| 10 | Tool failures return the message the code produced (`README.md:140-149`), which for a failed spawn carries the resolved binary path. | B1 | Deployment reconnaissance: filesystem layout and interpreter paths handed to whoever asks | Unmitigated |
+| 10 | Tool failures return the message the code produced (`README.md:140-149`), which for a failed spawn carries the resolved binary path. | B1 | Deployment reconnaissance: filesystem layout and interpreter paths handed to whoever asks | Unmitigated for spawn and OS errors. The session-state errors are a fixed set of five strings (`README.md:143-149`) and disclose nothing |
 | 11 | Nothing in the design records a command, an argument, a timeout or a reply size. | All | No trail to investigate an incident from | Unmitigated |
-| 12 | The build emits `build/index.js` and the client configuration points at it (`README.md:28-34`, `README.md:44-51`), with no build, test or CI artifact in this repository to show the shipped file matches the sources. | B5 | A build that diverges from tested source ships unchecked | Unverifiable here |
+| 12 | The build emits `build/index.js` and the client configuration points at it (`README.md:28-34`, `README.md:40-53`), with no build, test or CI artifact in this repository to show the shipped file matches the sources. | B5 | A build that diverges from tested source ships unchecked | Unverifiable here |
 | 13 | No published manifest, lockfile or CI workflow exists in this tree, so whether CI pins its actions and scopes its token, and what a consumer resolves, cannot be checked. | B5 | Supply-chain drift decided by whatever satisfies a range on the day of install | Unverifiable here |
 
 Nothing this server reads is a secret store: the two variables it parses are
@@ -63,7 +63,7 @@ statement about this server's own configuration, not about the environment the
 process inherits, which is row 2. Confidentiality of the caller's data is not a
 boundary this server defends; it is a pipe.
 
-## 1. Attack surface inventory, verified
+## 1. Attack surface inventory, as found in this tree
 
 There is none. No network listener, no HTTP or RPC endpoint, no message
 consumer, no webhook, no file or upload parser, no CLI argument parsing, no
@@ -86,7 +86,7 @@ compare against `tools/list` when the code lands:
 | `winedbg_start` `args` | Tool argument, reaches the child's argv | `README.md:84` | None stated; the array is passed through unchanged, with no length or content check |
 | `winedbg_execute` `command` | Tool argument, reaches the debugger's stdin | `README.md:85` | Non-empty, carrying no line terminator (`\n`, `\r`, vertical tab, form feed, NEL, U+2028, U+2029); no allowlist of debugger commands |
 | `winedbg_execute` `timeout` | Tool argument | `README.md:86` | Bounded, 1 to 600000 ms |
-| `winedbg_stop` | Tool argument, none | `README.md:87` | None needed |
+| `winedbg_stop` | Tool argument, none | `README.md:87` | None needed; what it waits for before returning is unstated |
 | Error text returned as tool text | Response carrying child and OS failure detail | `README.md:140-149` | None; the message is passed through as produced |
 | `WINEDBG_MCP_BINARY` | Environment, names the executable | `README.md:67-70` | Non-empty, read once; an unknown `WINEDBG_MCP_*` name aborts startup (`README.md:72-76`) |
 | `WINEDBG_MCP_READY_TIMEOUT_MS` | Environment | `README.md:67-70` | Whole milliseconds, 1 to 600000 |
@@ -98,6 +98,12 @@ compare against `tools/list` when the code lands:
 Signals and stream events the server must handle (shutdown, stdin `end`,
 transport close) are not described in the README. They are unanchored: find
 them in the code and add them to this table.
+
+The one internal name the README gives is `WinedbgSession`, the class the
+planned test suite drives against a stand-in speaking the same `Wine-dbg>`
+protocol (`README.md:125-128`). That is where the spawn, the framing and the
+reply buffer described throughout this model live, so the next pass should
+start there rather than at the transport.
 
 Entry points a previous revision of this model listed and the specification no
 longer has: none. The three tools at `README.md:84-87` are the complete tool
@@ -171,7 +177,7 @@ child. A value the server cannot use aborts startup with the variable named
 
 **B5: build to runtime.** The README's build step emits `build/index.js` and
 the client configuration points at that path (`README.md:28-34`,
-`README.md:44-51`). Whether that artifact matches the sources is a
+`README.md:40-53`). Whether that artifact matches the sources is a
 build-pipeline question this repository does not answer: there is no
 `package.json`, no `tsconfig.json`, no lockfile, no CI workflow and no stated
 dependency version. Two consequences follow, and both are unverifiable rather
@@ -231,7 +237,8 @@ here, the code paths are not.
   failure returns the message the code produced (`README.md:140-149`), which
   for a failed spawn carries the resolved interpreter path and the OS error, so
   a caller can map the deployment's filesystem by starting sessions against
-  paths that do not exist.
+  paths that do not exist. The session-state errors are a fixed set of five
+  strings (`README.md:143-149`) and disclose nothing.
 - **Denial of service.** A `timeout` of 600000 holds a tool call for ten
   minutes (`README.md:86`). A timed-out command blocks the next one until the
   prompt returns, and the only escape is `winedbg_stop`, which discards the
@@ -314,6 +321,9 @@ table as the list to verify on arrival, not as a list of controls in force.
 | Refusal while an abandoned prompt is owed | Output from a timed-out command reaching the wrong caller | `README.md:101-105` |
 | Buffer ceiling with a reported drop | Unbounded memory growth from a noisy debuggee | `README.md:107-113` |
 | Configuration validated at startup, unknown names rejected | A typo or bad value surfacing as a mid-session failure | `README.md:72-76` |
+| Exit status 1 on an unusable configuration | A deployment that believes it started when it did not, and would otherwise run on defaults | `README.md:148` |
+| Child killed when the first prompt never arrives | A start that never completed leaving a debugger with no session | `README.md:149` |
+| Five fixed session-state error strings | Path and layout disclosure through the common failure paths | `README.md:143-149` |
 | No secret read, logged or stored by this server | Nothing to disclose through the server's own configuration | `README.md:57-58` |
 | Process-group termination on stop and on shutdown | Orphaned debuggee after a clean shutdown | not stated in the README |
 
@@ -340,9 +350,12 @@ Absent by design, ranked by exploitability then impact:
    startup line on stderr and error text returned to the caller
    (`README.md:78-80`, `README.md:140-149`).
 7. **No length bound on `args`**, and no stated wait for the child to exit in
-   `stop()`.
+   `stop()`. The start-timeout kill (`README.md:149`) covers a start that never
+   reached its prompt, and says nothing about the stop path.
 8. **Sanitisation of error text before it reaches the caller**
-   (`README.md:140-149`).
+   (`README.md:140-149`). The five session-state messages are fixed text
+   (`README.md:143-149`), so what passes through unsanitised is the spawn and
+   OS error, not the routine failures.
 
 Security claims to check before relying on them. The README says there are no
 secrets and no config file (`README.md:57-58`) and qualifies it in the next
@@ -425,6 +438,17 @@ respect to the specification in `README.md`. The limits on it are these:
   `package.json`, files this repository does not contain. Any line reference
   added to this document later must resolve in this tree or be marked
   unanchored; an unresolvable reference reads as a checked one.
+- A later revision of this file carried `README.md` line numbers that a
+  subsequent README edit invalidated: dropping restating lead-ins from the
+  lists and the configuration block moved every line below them. 67 of its 71
+  references, in 20 distinct forms, then pointed at the wrong text while
+  still naming a line inside the file. Only `README.md:5-11` and
+  `README.md:28-34` survived, because they sit above the edited region. That
+  is the same failure as the `src/` citations, in the more likely direction,
+  because the README is a living file and this model edits it rarely. Every
+  `README.md` reference here was re-checked against the current file in this
+  pass. Re-check them again after any README edit; a citation that survives
+  review is not thereby re-verified.
 
 ## 8. Response readiness
 
