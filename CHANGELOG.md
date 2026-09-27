@@ -46,6 +46,16 @@ same string; `tests/version.test.ts` fails the build if the two disagree.
   replacement characters. The child's output now goes through a per-stream
   `StringDecoder`, so a character the pipe cut in half is the one character it
   is. The README claimed this already; the code did not do it.
+- `bun run check` passes on a clean checkout again. Biome reported 18 findings
+  and `tsc` reported two errors, so the gate CI runs failed before a
+  contributor changed anything: formatting that had drifted from `biome.json`,
+  unsorted imports, `fs` imported without the `node:` protocol, an assignment
+  in a `while` condition in the test double, and two reads of
+  `WINEDBG_MCP_SIM_SEED` that `noPropertyAccessFromIndexSignature` rejects.
+- `bun run format` now runs `biome check --write` rather than
+  `biome format --write`, so it applies the safe rule fixes (import order, and
+  the rest) instead of leaving a contributor with a tree that still fails
+  `bun run lint` after formatting.
 - `bun publish` runs the build first. `build/` is gitignored but is the whole
   published tarball, so a publish from a clean checkout shipped nothing, and a
   publish from a dirty one shipped whatever `build/` happened to contain.

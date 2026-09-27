@@ -38,10 +38,7 @@ Exit codes:
 /** An argument the user can fix by changing the command line. Exit code 2. */
 export class UsageError extends Error {}
 
-export type CliAction =
-  | { kind: "serve" }
-  | { kind: "help"; usage: string }
-  | { kind: "version"; version: string };
+export type CliAction = { kind: "serve" } | { kind: "help"; usage: string } | { kind: "version"; version: string };
 
 /**
  * Resolve argv to the one action to take. Anything unrecognized is a usage

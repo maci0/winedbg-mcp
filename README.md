@@ -8,8 +8,9 @@ The server is implemented and tested. `src/` holds the MCP entry point, the
 winedbg session state machine, the environment parsing, the command-line
 parsing and the tool-argument validation; `build/` is the compiled output of
 `bun run build`; `tests/` covers all of those, and CI (`.github/workflows/ci.yml`)
-runs the install, the typecheck, the build, the suite and the artifact check.
-The session tests drive `WinedbgSession`
+runs the install, `bun run check` (Biome, both type-check passes and the
+suite), the build and the artifact check. The session tests drive
+`WinedbgSession`
 against a stand-in that speaks the same `Wine-dbg>` prompt protocol, so the
 suite needs no Wine. No test here has been run against a real `winedbg`: the
 debugger is the one thing the fixtures replace, so the suite proves the prompt
@@ -245,12 +246,20 @@ CI after `bun run build`.
 ```bash
 bun run check          # what CI runs
 bun run lint           # Biome, formatting and lint rules
-bun run format         # Biome autofix
+bun run format         # Biome autofix: formatting, imports and every safe rule fix
 bun run typecheck      # tsc on src/, then on src/ + tests/
 bun run build          # tsc, then the executable build/index.js
 bun test
 bun run build
 scripts/verify-artifact.sh
+```
+
+The suite is one `bun test` over `tests/`, so the loop while editing is one file
+or one test rather than the lot:
+
+```bash
+bun test tests/session.test.ts        # one file
+bun test -t "rejects a NUL"           # every test whose name matches, in any file
 ```
 
 `tests/session.test.ts` drives `WinedbgSession` against `tests/fake-winedbg.js`,
@@ -290,9 +299,11 @@ together with `tests/` so a mistyped test helper fails the build rather than the
 suite.
 
 Formatting is Biome's, and the line width is 120 columns, the width the tree was
-already written to. `src/index.ts` keeps three scoped `noConsole` suppressions:
-stdout carries the MCP JSON-RPC stream, so the startup banner and the fatal
-error path have to go to stderr.
+already written to. `src/index.ts` keeps four scoped `noConsole` suppressions:
+stdout carries the MCP JSON-RPC stream, so the configuration failure, the audit
+log, the startup banner and the fatal error path have to go to stderr. It also
+keeps one `noControlCharactersInRegex` suppression on the audit log's strip
+pattern, where matching control characters is the point.
 
 ## Troubleshooting
 

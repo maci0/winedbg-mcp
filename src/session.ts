@@ -1,8 +1,8 @@
 import { BINARY_VAR } from "./config.js";
 import { DEFAULT_BINARY, DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS } from "./constants.js";
 import { stderrLogger, type Logger } from "./logger.js";
-import { nodeRuntime } from "./runtime.js";
 import type { DebuggerChild, SessionRuntime, Timer } from "./runtime.js";
+import { nodeRuntime } from "./runtime.js";
 
 const PROMPT = "Wine-dbg>";
 
@@ -142,7 +142,7 @@ export class WinedbgSession {
       throw new Error(
         this.stopRequested
           ? "winedbg stopped before it was ready"
-          : "winedbg was not started: a newer winedbg_start call replaced this one"
+          : "winedbg was not started: a newer winedbg_start call replaced this one",
       );
     }
     // A previous session can die leaving a prompt in the buffer; without this
@@ -166,8 +166,8 @@ export class WinedbgSession {
       });
       return Promise.reject(
         new Error(
-          `Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${error instanceof Error ? error.message : String(error)}`
-        )
+          `Failed to start ${this.binary} with args ${JSON.stringify(args)}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
       );
     }
     this.process = child;
@@ -326,8 +326,8 @@ export class WinedbgSession {
           (child) =>
             new Promise<void>((resolve) => {
               child.onClose(() => resolve());
-            })
-        )
+            }),
+        ),
       );
       let timer: NodeJS.Timeout | undefined;
       const expired = new Promise<void>((resolve) => {

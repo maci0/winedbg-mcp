@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 /**
@@ -155,7 +155,7 @@ export function nodeRuntime(): SessionRuntime {
           // Its own process group, so killTree() can reach the debuggee winedbg
           // started. Signalling winedbg alone leaves the debuggee running.
           detached: true,
-        })
+        }),
       ),
   };
 }

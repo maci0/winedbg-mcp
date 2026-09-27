@@ -40,12 +40,10 @@ const decoder = new StringDecoder("utf8");
 let pending = "";
 process.stdin.on("data", (chunk) => {
   pending += decoder.write(chunk);
-  let nl;
-  while ((nl = pending.indexOf("\n")) !== -1) {
+  for (let nl = pending.indexOf("\n"); nl !== -1; nl = pending.indexOf("\n")) {
     const line = pending.slice(0, nl).trim();
     pending = pending.slice(nl + 1);
     handle(line);
-    nl = pending.indexOf("\n");
   }
 });
 

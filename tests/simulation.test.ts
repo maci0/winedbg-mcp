@@ -15,8 +15,8 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger } from "../src/logger.js";
-import { WinedbgSession } from "../src/session.js";
 import type { Clock, DebuggerChild, Timer } from "../src/runtime.js";
+import { WinedbgSession } from "../src/session.js";
 
 const PROMPT = "Wine-dbg>";
 const REPLY_PREFIX = "ran: ";
@@ -40,7 +40,7 @@ class VirtualTimer implements Timer {
   constructor(
     readonly at: number,
     readonly seq: number,
-    private readonly run: () => void
+    private readonly run: () => void,
   ) {}
 
   cancel(): void {
@@ -113,7 +113,7 @@ class SimulatedDebugger implements DebuggerChild {
   constructor(
     private readonly clock: VirtualClock,
     private readonly rng: () => number,
-    promptDelayMs: number
+    promptDelayMs: number,
   ) {
     this.trapped = rng() < 0.5;
     this.clock.setTimeout(() => this.emit(`\n${PROMPT}`), promptDelayMs);
@@ -225,7 +225,9 @@ class SimulatedDebugger implements DebuggerChild {
     for (let offset = 0; offset < text.length; offset += size) {
       chunks.push(text.slice(offset, offset + size));
     }
-    chunks.forEach((chunk, index) => this.later(index * CHUNK_INTERVAL_MS, () => this.emit(chunk)));
+    chunks.forEach((chunk, index) => {
+      this.later(index * CHUNK_INTERVAL_MS, () => this.emit(chunk));
+    });
     this.later(chunks.length * CHUNK_INTERVAL_MS, () => this.settlePrompt(command));
   }
 
@@ -277,7 +279,7 @@ async function settle(clock: VirtualClock, pending: Promise<string>): Promise<Ou
     },
     (error: unknown) => {
       box.outcome = { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
+    },
   );
 
   for (let step = 0; step < MAX_STEPS && box.outcome === null; step++) {
@@ -297,7 +299,7 @@ async function expectRefused(
   session: WinedbgSession,
   label: string,
   fail: (message: string) => never,
-  transcript: string[]
+  transcript: string[],
 ): Promise<void> {
   const outcome = await settle(clock, session.executeCommand(label, COMMAND_TIMEOUT_MS));
   checkOutcome(outcome, label, fail);
@@ -348,7 +350,10 @@ async function runScenario(seed: number): Promise<{ transcript: string[]; signal
   };
 
   try {
-    const ready = await settle(clock, session.start().then(() => ""));
+    const ready = await settle(
+      clock,
+      session.start().then(() => ""),
+    );
     transcript.push(`start -> ${ready.ok ? "ready" : ready.error}`);
     if (!ready.ok) {
       // A fake that never prompted is not a session, whatever the reason,
@@ -426,7 +431,7 @@ async function runScenario(seed: number): Promise<{ transcript: string[]; signal
       if (fake.signals.length > 0) fail(`stop() signalled a debugger that had ended: ${JSON.stringify(fake.signals)}`);
     } else {
       if (fake.signals[0] !== "SIGTERM") fail(`stop() sent ${JSON.stringify(fake.signals)}`);
-      if ((fake.signals.length > 1) !== fake.needsKilling) {
+      if (fake.signals.length > 1 !== fake.needsKilling) {
         fail(`stop() sent ${JSON.stringify(fake.signals)} for a fake that answers or does not`);
       }
     }

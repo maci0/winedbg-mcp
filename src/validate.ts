@@ -25,7 +25,7 @@ function requireEncodable(value: string, field: string): string {
   if (LONE_SURROGATE.test(value)) {
     throw new McpError(
       ErrorCode.InvalidParams,
-      `${field} contains an unpaired UTF-16 surrogate, which no UTF-8 byte sequence can carry`
+      `${field} contains an unpaired UTF-16 surrogate, which no UTF-8 byte sequence can carry`,
     );
   }
   return value;
@@ -54,7 +54,7 @@ export function requireStringArray(value: unknown, field: string): string[] {
     if (item.includes("\0")) {
       throw new McpError(
         ErrorCode.InvalidParams,
-        `${field}[${index}] contains a NUL byte, which no argument can carry`
+        `${field}[${index}] contains a NUL byte, which no argument can carry`,
       );
     }
     items.push(requireEncodable(item, field));
@@ -72,7 +72,7 @@ export function requireString(value: unknown, field: string): string {
   if (LINE_BREAKS.test(value)) {
     throw new McpError(
       ErrorCode.InvalidParams,
-      `${field} must be a single line: no line break (\\n, \\r, \\v, \\f, U+0085, U+2028, U+2029) and no NUL`
+      `${field} must be a single line: no line break (\\n, \\r, \\v, \\f, U+0085, U+2028, U+2029) and no NUL`,
     );
   }
   return requireEncodable(value, field);
@@ -87,7 +87,7 @@ export function optionalTimeout(value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > MAX_COMMAND_TIMEOUT_MS) {
     throw new McpError(
       ErrorCode.InvalidParams,
-      `timeout must be a whole number of milliseconds between 1 and ${MAX_COMMAND_TIMEOUT_MS}`
+      `timeout must be a whole number of milliseconds between 1 and ${MAX_COMMAND_TIMEOUT_MS}`,
     );
   }
   return value;

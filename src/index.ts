@@ -2,9 +2,9 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { parseCliArgs, UsageError } from "./cli.js";
 import type { Config } from "./config.js";
 import { describeConfig, loadConfig } from "./config.js";
-import { parseCliArgs, UsageError } from "./cli.js";
 import { WinedbgSession } from "./session.js";
 import { createLogger } from "./logger.js";
 import { callTool, TOOLS, type ToolResult } from "./tools.js";
@@ -26,9 +26,7 @@ try {
   }
 } catch (error) {
   if (!(error instanceof UsageError)) throw error;
-  process.stderr.write(
-    `winedbg-mcp: ${error.message}\nTry 'winedbg-mcp --help' for the accepted arguments.\n`
-  );
+  process.stderr.write(`winedbg-mcp: ${error.message}\nTry 'winedbg-mcp --help' for the accepted arguments.\n`);
   process.exit(2);
 }
 

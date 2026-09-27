@@ -111,7 +111,7 @@ describe("start", () => {
     // nothing to check.
     const failure = await s.start().then(
       () => "",
-      (error: Error) => error.message
+      (error: Error) => error.message,
     );
     expect(failure).toContain("ENOENT");
     expect(failure).toContain(BINARY_VAR);
@@ -284,25 +284,21 @@ describe("executeCommand", () => {
     expect(out).not.toContain("�");
   });
 
-  test(
-    "cuts the overflow on a character boundary, not inside a surrogate pair",
-    async () => {
-      const s = await startedSession();
-      const out = await s.executeCommand("astral:" + ASTRAL_CHARS);
-      // A cut landing on the low half of a pair leaves a surrogate unpaired,
-      // which JSON then has to escape and no terminal renders as the character
-      // it was. Iterating code points is what makes an unpaired half visible:
-      // it is a code point of its own, in the surrogate range and nowhere else.
-      const orphans = [...out].filter((codePoint) => {
-        const unit = codePoint.charCodeAt(0);
-        return codePoint.length === 1 && unit >= 0xd800 && unit <= 0xdfff;
-      });
-      expect(orphans.length).toBe(0);
-      expect(out).not.toContain("�");
-      expect(await s.executeCommand("bt")).toBe("ran: bt");
-    },
-    20000
-  );
+  test("cuts the overflow on a character boundary, not inside a surrogate pair", async () => {
+    const s = await startedSession();
+    const out = await s.executeCommand(`astral:${ASTRAL_CHARS}`);
+    // A cut landing on the low half of a pair leaves a surrogate unpaired,
+    // which JSON then has to escape and no terminal renders as the character
+    // it was. Iterating code points is what makes an unpaired half visible:
+    // it is a code point of its own, in the surrogate range and nowhere else.
+    const orphans = [...out].filter((codePoint) => {
+      const unit = codePoint.charCodeAt(0);
+      return codePoint.length === 1 && unit >= 0xd800 && unit <= 0xdfff;
+    });
+    expect(orphans.length).toBe(0);
+    expect(out).not.toContain("�");
+    expect(await s.executeCommand("bt")).toBe("ran: bt");
+  }, 20000);
 
   test("keeps multi-byte characters whole when a read splits them", async () => {
     const s = await startedSession();
