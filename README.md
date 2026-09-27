@@ -111,12 +111,12 @@ winedbg MCP server running on stdio (WINEDBG_MCP_BINARY=winedbg WINEDBG_MCP_READ
 marker in the stream is the `Wine-dbg>` prompt. Two consequences are visible
 through the tools:
 
-- One command per `winedbg_execute` call. A command carrying a line terminator is
-  rejected, because every one of them draws its own prompt and puts every later reply
-  one command behind. The rejected set is `\n`, `\r`, vertical tab, form feed, NEL
-  (U+0085), and the Unicode line and paragraph separators (U+2028, U+2029). A stream
-  reader splits on `\n`, `\r` and vertical tab, and readers disagree on the rest, so a
-  command is one line only if it is one line under every one of them.
+- One command per `winedbg_execute` call. A command carrying `\n` or `\r` is
+  rejected, because each draws its own prompt and puts every later reply
+  one command behind. Vertical tab, form feed, NEL (U+0085) and the Unicode line
+  and paragraph separators (U+2028, U+2029) are not rejected and are written to
+  the debugger as given, so whether one command stays one line depends on how
+  `winedbg`'s own reader splits its input.
 - After a command times out, further commands are refused until the debugger
   prints its prompt again. A debugger that has not returned to its prompt is not
   reading commands, and whatever it prints next belongs to the command that timed
