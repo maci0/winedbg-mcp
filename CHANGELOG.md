@@ -10,6 +10,20 @@ the newest section dated below is not the version the package declares. A
 release renames `## [Unreleased]` to the version it ships; `CONTRIBUTING.md`
 section 4 is the order.
 
+## [2.1.0] - 2026-09-28
+
+### Changed
+
+- No change to the tools, their arguments, the `WINEDBG_MCP_*` variables, or
+  the stderr log line.
+- CI installs shellcheck when the runner image does not ship it. `bun run lint`
+  calls it directly, and the macOS job was exiting 127 before the build and
+  the artifact check ran.
+- The bun lockfile is updated by Renovate. Dependabot keeps GitHub Actions
+  only: it cannot parse this repo's `bun.lock` at lockfileVersion 2, so the
+  weekly bun ecosystem entry never opened a pull request.
+- `actions/checkout` is pinned at 7.0.1.
+
 ## [2.0.0] - 2026-09-27
 
 ### Added
